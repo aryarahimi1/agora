@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.docker.example
 
 # Python
 venv/
@@ -16,9 +17,3 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
-
-# Tooling caches (local dev assistants, scratch dirs)
-.agents/
-.claude/
-.context/
-skills-lock.json
