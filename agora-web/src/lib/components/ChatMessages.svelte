@@ -2,7 +2,6 @@
 	import { fly } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import type { DiscussionEntry } from '$lib/api';
-	import { Badge } from '$lib/components/ui/badge';
 	import Markdown from '$lib/components/Markdown.svelte';
 
 	let {
@@ -43,9 +42,18 @@
 		});
 	});
 
-	function avatarStyle(hue: number | undefined): string {
-		const h = typeof hue === 'number' ? hue : 285;
-		return `--h:${h};background:linear-gradient(135deg,oklch(0.64 0.2 ${h}),oklch(0.5 0.18 ${(h + 40) % 360}));`;
+	function avatarTint(hue: number | undefined): string {
+		const h = typeof hue === 'number' ? hue : 25;
+		return `background: oklch(var(--avatar-bg-l) var(--avatar-bg-c) ${h}); color: oklch(var(--avatar-fg-l) var(--avatar-fg-c) ${h});`;
+	}
+
+	function monogram(name: string): string {
+		const parts = name.trim().split(/\s+/).filter(Boolean);
+		if (parts.length >= 2) {
+			return (parts[0][0] + parts[1][0]).toUpperCase();
+		}
+		const only = parts[0] ?? '?';
+		return only.slice(0, 2).toUpperCase();
 	}
 
 	function shortModel(id: string): string {
@@ -53,54 +61,52 @@
 		return slash >= 0 ? id.slice(slash + 1) : id;
 	}
 
-	function metaPills(entry: DiscussionEntry): string[] {
-		const out: string[] = [];
-		if (entry.round !== undefined) out.push(`Round ${entry.round}`);
-		if (entry.phase) out.push(entry.phase);
-		if (entry.position) out.push(entry.position);
-		return out;
+	function metaLine(entry: DiscussionEntry): string {
+		const parts: string[] = [];
+		if (entry.round !== undefined) parts.push(`Round ${entry.round}`);
+		if (entry.phase) parts.push(entry.phase);
+		if (entry.position) parts.push(entry.position);
+		return parts.join(' · ');
 	}
 </script>
 
-<div bind:this={rootEl} class="flex flex-col gap-6 py-6">
+<div bind:this={rootEl} class="flex flex-col gap-10 py-8">
 	{#each entries as entry, i (i)}
+		{@const meta = metaLine(entry)}
 		<article
-			class="group flex gap-3.5"
+			class="group flex gap-4"
 			class:is-streaming={entry.streaming}
-			in:fly={{ y: 8, duration: 320, easing: quintOut }}
+			in:fly={{ y: 6, duration: 280, easing: quintOut }}
 		>
-			<div class="relative shrink-0">
-				<div
-					class="avatar grid size-9 place-items-center rounded-xl text-base shadow-md select-none"
-					style={avatarStyle(entry.avatarHue)}
-					aria-hidden="true"
-				>
-					{entry.emoji ?? '✦'}
-				</div>
-				{#if entry.streaming}
-					<span class="speaker-ring" aria-hidden="true"></span>
-				{/if}
+			<div
+				class="avatar grid size-9 shrink-0 place-items-center rounded-full text-[11px] font-semibold tracking-[0.04em] tabular-nums select-none"
+				style={avatarTint(entry.avatarHue)}
+				aria-hidden="true"
+			>
+				{monogram(entry.participant)}
 			</div>
 
 			<div class="min-w-0 flex-1">
-				<div class="mb-1.5 flex flex-wrap items-center gap-1.5">
-					<span class="text-foreground text-sm font-semibold tracking-tight">
+				<header class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+					<h3 class="font-display text-foreground text-[17px] font-semibold leading-none tracking-[-0.005em]">
 						{entry.participant}
-					</span>
-					{#each metaPills(entry) as pill (pill)}
-						<Badge
-							variant="secondary"
-							class="h-[18px] rounded-full px-1.5 text-[10px] font-medium tracking-wide"
-						>
-							{pill}
-						</Badge>
-					{/each}
-					<span class="text-muted-foreground/90 ml-auto font-mono text-[10px] tracking-tight">
+					</h3>
+					{#if meta}
+						<span class="text-muted-foreground/95 text-[12px] leading-none tracking-tight">
+							{meta}
+						</span>
+					{/if}
+					{#if entry.streaming}
+						<span class="text-primary/85 font-display text-[12px] leading-none italic">
+							speaking
+						</span>
+					{/if}
+					<span class="text-muted-foreground/65 ml-auto font-mono text-[10.5px] leading-none tracking-tight">
 						{shortModel(entry.model)}
 					</span>
-				</div>
+				</header>
 
-				<div class="text-foreground/92 min-w-0">
+				<div class="font-display message-body text-foreground/95 min-w-0 text-[16.5px] leading-[1.72]">
 					{#if entry.response}
 						<Markdown source={entry.response} />
 					{/if}
@@ -113,54 +119,16 @@
 
 <style>
 	.avatar {
-		position: relative;
-		isolation: isolate;
-		box-shadow:
-			inset 0 1px 0 oklch(1 0 0 / 0.18),
-			0 1px 2px oklch(0 0 0 / 0.35),
-			0 4px 14px oklch(0 0 0 / 0.18);
-	}
-	.avatar::after {
-		content: '';
-		position: absolute;
-		inset: 0;
-		border-radius: inherit;
-		border: 1px solid oklch(1 0 0 / 0.06);
-		pointer-events: none;
-	}
-
-	.speaker-ring {
-		position: absolute;
-		inset: -3px;
-		border-radius: 14px;
-		border: 1.5px solid oklch(0.78 0.16 285 / 0.55);
-		animation: speaker-pulse 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-		pointer-events: none;
-	}
-	@keyframes speaker-pulse {
-		0% {
-			transform: scale(1);
-			opacity: 0.85;
-		}
-		70% {
-			transform: scale(1.18);
-			opacity: 0;
-		}
-		100% {
-			transform: scale(1.18);
-			opacity: 0;
-		}
+		font-family: var(--font-sans);
 	}
 
 	.stream-caret {
 		display: inline-block;
-		width: 0.5em;
-		height: 1.05em;
-		margin-left: 3px;
-		vertical-align: -0.18em;
-		background: oklch(0.8 0.17 285);
-		border-radius: 1px;
-		box-shadow: 0 0 8px oklch(0.78 0.16 285 / 0.5);
+		width: 2px;
+		height: 1em;
+		margin-left: 2px;
+		vertical-align: -0.14em;
+		background: var(--foreground);
 		animation: caret-blink 1.05s steps(2, jump-none) infinite;
 	}
 	@keyframes caret-blink {
@@ -174,10 +142,80 @@
 		}
 	}
 
+	.message-body :global(p) {
+		margin: 0 0 0.85em;
+	}
+	.message-body :global(p:last-child) {
+		margin-bottom: 0;
+	}
+	.message-body :global(h1),
+	.message-body :global(h2),
+	.message-body :global(h3),
+	.message-body :global(h4) {
+		font-family: var(--font-serif);
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		line-height: 1.25;
+		margin: 1.2em 0 0.5em;
+	}
+	.message-body :global(h1) { font-size: 1.35em; }
+	.message-body :global(h2) { font-size: 1.2em; }
+	.message-body :global(h3) { font-size: 1.05em; }
+	.message-body :global(em) {
+		font-style: italic;
+	}
+	.message-body :global(strong) {
+		font-weight: 600;
+	}
+	.message-body :global(code) {
+		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+		font-size: 0.9em;
+		background: var(--code-tint);
+		padding: 0.08em 0.32em;
+		border-radius: 3px;
+	}
+	.message-body :global(pre) {
+		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+		font-size: 0.88em;
+		line-height: 1.55;
+		background: var(--code-block-tint);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.85em 1em;
+		overflow-x: auto;
+		margin: 1em 0;
+	}
+	.message-body :global(pre code) {
+		background: none;
+		padding: 0;
+		border-radius: 0;
+	}
+	.message-body :global(ul),
+	.message-body :global(ol) {
+		padding-left: 1.4em;
+		margin: 0.6em 0 0.85em;
+	}
+	.message-body :global(li) {
+		margin: 0.18em 0;
+	}
+	.message-body :global(blockquote) {
+		font-style: italic;
+		color: var(--muted-foreground);
+		padding-left: 1em;
+		border-left: 1px solid var(--border);
+		margin: 0.85em 0;
+	}
+	.message-body :global(a) {
+		color: var(--primary);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+		text-decoration-thickness: 0.5px;
+	}
+	.message-body :global(a:hover) {
+		text-decoration-thickness: 1px;
+	}
+
 	@media (prefers-reduced-motion: reduce) {
-		.speaker-ring {
-			animation: none;
-		}
 		.stream-caret {
 			animation: none;
 			opacity: 1;

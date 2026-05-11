@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+/* Newsreader + Inter are loaded via <link> in app.html for non-render-blocking discovery. */
 
 @custom-variant dark (&:is(.dark *));
 
@@ -7,11 +8,13 @@
 	--font-sans:
 		'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
 		'Helvetica Neue', Arial, sans-serif;
+	--font-serif:
+		'Newsreader', 'Iowan Old Style', 'Charter', 'Source Serif Pro', Cambria, Georgia, serif;
 
-	--radius-sm: calc(var(--radius) - 4px);
-	--radius-md: calc(var(--radius) - 2px);
+	--radius-sm: calc(var(--radius) - 3px);
+	--radius-md: calc(var(--radius) - 1px);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) + 4px);
+	--radius-xl: calc(var(--radius) + 3px);
 
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
@@ -44,78 +47,135 @@
 }
 
 :root {
-	--radius: 0.75rem;
+	--radius: 0.5rem;
 
-	/* Light fallback (we ship dark by default) */
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.18 0.02 265);
-	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.18 0.02 265);
-	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.18 0.02 265);
-	--primary: oklch(0.58 0.21 285);
-	--primary-foreground: oklch(0.99 0 0);
-	--secondary: oklch(0.96 0.01 265);
-	--secondary-foreground: oklch(0.22 0.02 265);
-	--muted: oklch(0.96 0.01 265);
-	--muted-foreground: oklch(0.5 0.02 265);
-	--accent: oklch(0.96 0.01 265);
-	--accent-foreground: oklch(0.22 0.02 265);
-	--destructive: oklch(0.62 0.22 25);
-	--destructive-foreground: oklch(0.99 0 0);
-	--border: oklch(0.92 0.01 265);
-	--input: oklch(0.92 0.01 265);
-	--ring: oklch(0.58 0.21 285);
+	/* DAYLIT (default). Warm-paper surface, ink-dark text. The scene:
+	   a daylit study, transcripts read on paper at a desk by a window.
+	   Tinted toward 75–80° (warm cream). */
+	--background: oklch(0.972 0.010 78);
+	--foreground: oklch(0.205 0.014 60);
 
-	--sidebar: oklch(0.98 0.005 265);
-	--sidebar-foreground: oklch(0.18 0.02 265);
-	--sidebar-primary: oklch(0.58 0.21 285);
-	--sidebar-primary-foreground: oklch(0.99 0 0);
-	--sidebar-accent: oklch(0.95 0.01 265);
-	--sidebar-accent-foreground: oklch(0.22 0.02 265);
-	--sidebar-border: oklch(0.92 0.01 265);
-	--sidebar-ring: oklch(0.58 0.21 285);
+	--card: oklch(0.986 0.008 78);
+	--card-foreground: oklch(0.205 0.014 60);
+
+	--popover: oklch(0.99 0.006 78);
+	--popover-foreground: oklch(0.205 0.014 60);
+
+	/* Oxblood: the one warm pulse. Used sparingly for the run action,
+	   active states, and the streaming caret. */
+	--primary: oklch(0.42 0.13 25);
+	--primary-foreground: oklch(0.972 0.010 78);
+
+	--secondary: oklch(0.93 0.010 75);
+	--secondary-foreground: oklch(0.22 0.014 60);
+
+	--muted: oklch(0.94 0.008 75);
+	--muted-foreground: oklch(0.46 0.012 60);
+
+	--accent: oklch(0.92 0.012 70);
+	--accent-foreground: oklch(0.22 0.014 60);
+
+	--destructive: oklch(0.50 0.17 25);
+	--destructive-foreground: oklch(0.972 0.010 78);
+
+	--border: oklch(0.84 0.012 70);
+	--input: oklch(0.86 0.012 70);
+	--ring: oklch(0.42 0.13 25 / 0.42);
+
+	--sidebar: oklch(0.953 0.012 78);
+	--sidebar-foreground: oklch(0.205 0.014 60);
+	--sidebar-primary: oklch(0.42 0.13 25);
+	--sidebar-primary-foreground: oklch(0.972 0.010 78);
+	--sidebar-accent: oklch(0.924 0.012 75);
+	--sidebar-accent-foreground: oklch(0.22 0.014 60);
+	--sidebar-border: oklch(0.84 0.012 70);
+	--sidebar-ring: oklch(0.42 0.13 25 / 0.42);
+
+	/* Per-mode flat hues (light). Single chroma, same lightness band
+	   so the five sit as siblings, not a rainbow. */
+	--mode-roleplay: oklch(0.50 0.09 318);
+	--mode-consensus: oklch(0.50 0.09 225);
+	--mode-brainstorm: oklch(0.58 0.09 65);
+	--mode-debate: oklch(0.42 0.13 25);
+	--mode-collaborative: oklch(0.50 0.08 155);
+
+	/* Agent avatar disc tints, driven from CSS variables so they swap
+	   with theme. Inline style in components reads these. */
+	--avatar-bg-l: 0.91;
+	--avatar-bg-c: 0.028;
+	--avatar-fg-l: 0.32;
+	--avatar-fg-c: 0.08;
+
+	/* Code surfaces in markdown */
+	--code-tint: oklch(0.205 0.014 60 / 0.07);
+	--code-block-tint: oklch(0.205 0.014 60 / 0.045);
+
+	/* Brand constants. The hero band on the landing keeps this oxblood
+	   on cream in both themes; identity does not flip with reading mode. */
+	--brand-oxblood: oklch(0.42 0.13 25);
+	--brand-oxblood-deep: oklch(0.34 0.12 24);
+	--brand-cream: oklch(0.972 0.010 78);
+	--brand-cream-soft: oklch(0.972 0.010 78 / 0.78);
+	--brand-cream-quiet: oklch(0.972 0.010 78 / 0.55);
 }
 
+/* MIDNIGHT. Same reader, same study, late at night with a single warm
+   desk lamp pooling amber light on the page. Warm dark, not cold dark:
+   walnut-stained off-black, paper-cream ink, brighter oxblood so the
+   accent still reads under low ambient light. */
 .dark {
-	/* Deep slate, near-black with subtle blue cast */
-	--background: oklch(0.14 0.015 265);
-	--foreground: oklch(0.97 0.005 265);
+	--background: oklch(0.165 0.012 60);
+	--foreground: oklch(0.912 0.012 78);
 
-	--card: oklch(0.17 0.015 265);
-	--card-foreground: oklch(0.97 0.005 265);
+	--card: oklch(0.200 0.013 60);
+	--card-foreground: oklch(0.912 0.012 78);
 
-	--popover: oklch(0.18 0.018 265);
-	--popover-foreground: oklch(0.97 0.005 265);
+	--popover: oklch(0.220 0.014 60);
+	--popover-foreground: oklch(0.912 0.012 78);
 
-	/* Electric indigo→violet — single primary token (gradients applied per-component) */
-	--primary: oklch(0.66 0.2 285);
-	--primary-foreground: oklch(0.99 0 0);
+	--primary: oklch(0.665 0.155 25);
+	--primary-foreground: oklch(0.165 0.012 60);
 
-	--secondary: oklch(0.22 0.02 265);
-	--secondary-foreground: oklch(0.97 0.005 265);
+	--secondary: oklch(0.260 0.014 60);
+	--secondary-foreground: oklch(0.912 0.012 78);
 
-	--muted: oklch(0.22 0.02 265);
-	--muted-foreground: oklch(0.68 0.02 265);
+	--muted: oklch(0.250 0.013 60);
+	--muted-foreground: oklch(0.685 0.014 72);
 
-	--accent: oklch(0.25 0.03 285);
-	--accent-foreground: oklch(0.97 0.005 265);
+	--accent: oklch(0.275 0.018 50);
+	--accent-foreground: oklch(0.912 0.012 78);
 
-	--destructive: oklch(0.65 0.22 25);
-	--destructive-foreground: oklch(0.99 0 0);
+	--destructive: oklch(0.660 0.18 25);
+	--destructive-foreground: oklch(0.165 0.012 60);
 
-	--border: oklch(1 0 0 / 0.08);
-	--input: oklch(1 0 0 / 0.1);
-	--ring: oklch(0.66 0.2 285 / 0.55);
+	--border: oklch(0.912 0.012 78 / 0.10);
+	--input: oklch(0.912 0.012 78 / 0.12);
+	--ring: oklch(0.665 0.155 25 / 0.55);
 
-	--sidebar: oklch(0.16 0.015 265);
-	--sidebar-foreground: oklch(0.97 0.005 265);
-	--sidebar-primary: oklch(0.66 0.2 285);
-	--sidebar-primary-foreground: oklch(0.99 0 0);
-	--sidebar-accent: oklch(0.22 0.02 265);
-	--sidebar-accent-foreground: oklch(0.97 0.005 265);
-	--sidebar-border: oklch(1 0 0 / 0.06);
-	--sidebar-ring: oklch(0.66 0.2 285 / 0.55);
+	--sidebar: oklch(0.140 0.012 60);
+	--sidebar-foreground: oklch(0.912 0.012 78);
+	--sidebar-primary: oklch(0.665 0.155 25);
+	--sidebar-primary-foreground: oklch(0.165 0.012 60);
+	--sidebar-accent: oklch(0.230 0.014 60);
+	--sidebar-accent-foreground: oklch(0.912 0.012 78);
+	--sidebar-border: oklch(0.912 0.012 78 / 0.08);
+	--sidebar-ring: oklch(0.665 0.155 25 / 0.55);
+
+	/* Mode hues lift to ~0.66 so they read against the warm-dark surface
+	   without flaring. Debate stays the oxblood family. */
+	--mode-roleplay: oklch(0.66 0.105 318);
+	--mode-consensus: oklch(0.66 0.105 225);
+	--mode-brainstorm: oklch(0.74 0.105 65);
+	--mode-debate: oklch(0.665 0.155 25);
+	--mode-collaborative: oklch(0.66 0.095 155);
+
+	--avatar-bg-l: 0.30;
+	--avatar-bg-c: 0.05;
+	--avatar-fg-l: 0.86;
+	--avatar-fg-c: 0.04;
+
+	--code-tint: oklch(0.912 0.012 78 / 0.08);
+	--code-block-tint: oklch(0.912 0.012 78 / 0.045);
 }
 
 @layer base {
@@ -128,62 +188,56 @@
 	}
 	body {
 		@apply bg-background text-foreground font-sans antialiased;
-		font-feature-settings:
-			'cv11',
-			'ss01';
-		font-variation-settings: 'opsz' 32;
+		font-feature-settings: 'cv11', 'ss01';
 	}
 	::selection {
-		background: oklch(0.66 0.2 285 / 0.35);
+		background: color-mix(in oklab, var(--primary) 22%, transparent);
 	}
 }
 
 @layer utilities {
+	/* The paper is flat. No aurora, no glow. */
 	.bg-app {
-		background:
-			radial-gradient(1200px 600px at 80% -10%, oklch(0.66 0.2 285 / 0.18), transparent 60%),
-			radial-gradient(900px 500px at -10% 110%, oklch(0.62 0.18 320 / 0.14), transparent 60%),
-			var(--background);
+		background: var(--background);
 	}
 
-	.glass {
-		background: color-mix(in oklab, var(--card) 78%, transparent);
-		backdrop-filter: blur(12px) saturate(140%);
-		-webkit-backdrop-filter: blur(12px) saturate(140%);
+	/* Editorial serif display. The wordmark, agent names, and message
+	   bodies use this; UI chrome stays sans for legibility at small sizes. */
+	.font-display {
+		font-family: var(--font-serif);
+		font-optical-sizing: auto;
+		letter-spacing: -0.005em;
 	}
 
-	/* Mode accent gradients */
+	/* Solid ink in the serif display. The wordmark earns weight from the
+	   face and the letterforms, not from chroma. */
+	.text-brand {
+		font-family: var(--font-serif);
+		font-weight: 600;
+		color: var(--foreground);
+		letter-spacing: -0.012em;
+		font-feature-settings: 'liga', 'kern';
+	}
+
+	/* Mode utilities pull from theme-aware variables; the same class
+	   resolves correctly under light or dark. */
 	.mode-roleplay {
-		background-image: linear-gradient(135deg, #a855f7, #f472b6);
+		background-color: var(--mode-roleplay);
 	}
 	.mode-consensus {
-		background-image: linear-gradient(135deg, #60a5fa, #22d3ee);
+		background-color: var(--mode-consensus);
 	}
 	.mode-brainstorm {
-		background-image: linear-gradient(135deg, #facc15, #fb923c);
+		background-color: var(--mode-brainstorm);
 	}
 	.mode-debate {
-		background-image: linear-gradient(135deg, #f87171, #f472b6);
+		background-color: var(--mode-debate);
 	}
 	.mode-collaborative {
-		background-image: linear-gradient(135deg, #4ade80, #60a5fa);
-	}
-
-	/* Brand title gradient */
-	.text-brand {
-		background: linear-gradient(
-			135deg,
-			oklch(0.7 0.2 285) 0%,
-			oklch(0.7 0.18 320) 50%,
-			oklch(0.78 0.16 60) 100%
-		);
-		-webkit-background-clip: text;
-		background-clip: text;
-		color: transparent;
+		background-color: var(--mode-collaborative);
 	}
 }
 
-/* Scrollbar polish */
 ::-webkit-scrollbar {
 	width: 10px;
 	height: 10px;
@@ -192,13 +246,13 @@
 	background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-	background: oklch(1 0 0 / 0.08);
+	background: color-mix(in oklab, var(--foreground) 18%, transparent);
 	border-radius: 999px;
 	border: 2px solid transparent;
 	background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-	background: oklch(1 0 0 / 0.16);
+	background: color-mix(in oklab, var(--foreground) 32%, transparent);
 	background-clip: padding-box;
 	border: 2px solid transparent;
 }

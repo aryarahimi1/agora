@@ -44,7 +44,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	roleplay: {
 		label: 'Roleplay',
 		emoji: '🎭',
-		hint: 'Each generation runs one full rotation (every agent speaks).',
+		hint: 'Each round runs one full rotation; every agent speaks in turn.',
 		gradientClass: 'mode-roleplay',
 		flexibleAgents: true,
 		minAgents: 3,
@@ -53,7 +53,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	consensus: {
 		label: 'Consensus',
 		emoji: '🤝',
-		hint: 'Each agent presents a position, then a facilitator runs N passes to find common ground.',
+		hint: 'Each agent stakes a position. A facilitator then runs further rounds to find common ground.',
 		gradientClass: 'mode-consensus',
 		flexibleAgents: true,
 		minAgents: 3,
@@ -62,7 +62,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	brainstorm: {
 		label: 'Brainstorm',
 		emoji: '💡',
-		hint: 'Sequential rotating creative passes. Generations = number of agent turns.',
+		hint: 'Sequential creative passes. Each round adds one agent turn.',
 		gradientClass: 'mode-brainstorm',
 		flexibleAgents: true,
 		minAgents: 3,
@@ -71,7 +71,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	debate: {
 		label: 'Debate',
 		emoji: '⚔️',
-		hint: 'Each generation is one debate round; positions cycle (support / oppose / nuanced).',
+		hint: 'One round, one exchange. Positions cycle through support, oppose, and nuanced.',
 		gradientClass: 'mode-debate',
 		flexibleAgents: true,
 		minAgents: 3,
@@ -80,7 +80,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	collaborative: {
 		label: 'Collaborative',
 		emoji: '🧠',
-		hint: 'Educator → Analyst → Synthesizer. Locked to exactly 3 agents.',
+		hint: 'Educator, then Analyst, then Synthesizer. Locked to three agents.',
 		gradientClass: 'mode-collaborative',
 		flexibleAgents: false,
 		minAgents: 3,

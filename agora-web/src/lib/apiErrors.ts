@@ -1,6 +1,13 @@
 /** User-safe messages — never echo raw API bodies, validation `loc`, or upstream payloads. */
 
-export function safeHttpErrorMessage(status: number): string {
+/** Sentinel substring embedded in formatted errors when the server signals no API key. */
+export const NO_KEY_SENTINEL = 'Add a key in Account settings';
+
+export function safeHttpErrorMessage(status: number, detail?: string): string {
+	// Pass-through the no-key signal so the workspace can detect it.
+	if (detail && detail.includes('OpenRouter API key')) {
+		return `No OpenRouter API key. ${NO_KEY_SENTINEL}.`;
+	}
 	if (status === 422 || status === 400) {
 		return 'We could not process this request. Check your input and try again.';
 	}

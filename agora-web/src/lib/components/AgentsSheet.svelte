@@ -3,7 +3,6 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Label } from '$lib/components/ui/label';
-	import { Badge } from '$lib/components/ui/badge';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import * as Popover from '$lib/components/ui/popover';
@@ -53,9 +52,16 @@
 	let openModelFor = $state<string | null>(null);
 	let modelSearch = $state('');
 
-	function avatarStyle(idx: number): string {
+	function avatarTint(idx: number): string {
 		const hue = AGENT_AVATAR_HUES[idx % AGENT_AVATAR_HUES.length];
-		return `background: linear-gradient(135deg, oklch(0.62 0.2 ${hue}), oklch(0.5 0.18 ${(hue + 40) % 360}));`;
+		return `background: oklch(var(--avatar-bg-l) var(--avatar-bg-c) ${hue}); color: oklch(var(--avatar-fg-l) var(--avatar-fg-c) ${hue});`;
+	}
+
+	function monogram(name: string): string {
+		const parts = name.trim().split(/\s+/).filter(Boolean);
+		if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+		const only = parts[0] ?? '?';
+		return only.slice(0, 2).toUpperCase();
 	}
 
 	function catalogRows(agent: Agent): ModelOption[] {
@@ -94,30 +100,25 @@
 						Name each voice, tune personas, and assign models from OpenRouter.
 					</Sheet.Description>
 				</div>
-				<Badge variant="secondary" class={cn('shrink-0 border-0 text-white', meta.gradientClass)}>
-					{meta.emoji}
-					{meta.label}
-				</Badge>
+				<div class="text-muted-foreground flex shrink-0 items-baseline gap-1.5 text-[12px]">
+					<span class={cn('inline-block size-[7px] translate-y-[-1px] rounded-full', meta.gradientClass)} aria-hidden="true"></span>
+					<span class="font-display text-foreground text-[13px] font-medium">{meta.label}</span>
+				</div>
 			</div>
 		</Sheet.Header>
 
 		<ScrollArea class="min-h-0 flex-1">
 			<div class="flex flex-col gap-3 p-4">
 				{#each agents as agent, idx (agent.id)}
-					<div class="bg-card/60 border-border space-y-3 rounded-xl border p-3 shadow-sm">
+					<div class="bg-card border-border space-y-3 rounded-md border p-3.5">
 						<div class="flex items-start gap-3">
-							<button
-								type="button"
-								class="grid size-10 shrink-0 place-items-center rounded-lg text-lg shadow-sm select-none"
-								style={avatarStyle(idx)}
-								title="Change emoji"
-								onclick={() => {
-									const next = prompt('Emoji for this agent:', agent.emoji);
-									if (next) onUpdate(agent.id, { emoji: next.trim().slice(0, 4) });
-								}}
+							<div
+								class="grid size-10 shrink-0 place-items-center rounded-full text-[12px] font-semibold tracking-[0.04em] select-none"
+								style={avatarTint(idx)}
+								aria-hidden="true"
 							>
-								<span>{agent.emoji}</span>
-							</button>
+								{monogram(agent.name)}
+							</div>
 							<div class="flex flex-1 flex-col gap-1.5">
 								<Label for="agent-name-{agent.id}" class="text-xs">Name</Label>
 								<Input

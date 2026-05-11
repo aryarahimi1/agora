@@ -1,5 +1,7 @@
 import { browser } from '$app/environment';
 import { models as DEFAULT_MODELS_MAP, type DiscussionEntry } from '$lib/api';
+import { apiFetch } from '$lib/auth/apiClient';
+import { auth } from '$lib/auth/auth.svelte';
 import {
 	MODE_DEFAULT_AGENTS,
 	MODE_META,
@@ -18,6 +20,82 @@ const FALLBACK_MODEL_ROTATION: string[] = [
 	'meta-llama/llama-3.3-70b-instruct',
 	'openai/gpt-4o'
 ];
+
+// Snake-case shapes from the server
+
+interface AgentRemote {
+	id: string;
+	name: string;
+	emoji: string;
+	persona: string;
+	model: string;
+}
+
+interface ChatRemote {
+	id: string;
+	title: string;
+	mode: string;
+	generations: number;
+	draft_topic: string;
+	agents?: AgentRemote[];
+	entries?: DiscussionEntry[];
+	created_at: string;
+	updated_at: string;
+}
+
+interface ChatListItem {
+	id: string;
+	title: string;
+	mode: string;
+	generations: number;
+	draft_topic: string;
+	created_at: string;
+	updated_at: string;
+}
+
+function remoteToSession(r: ChatRemote): ChatSession {
+	const mode: DiscussionMode = isMode(r.mode) ? r.mode : 'roleplay';
+	const rawAgents = Array.isArray(r.agents) && r.agents.length > 0
+		? r.agents.map(normalizeAgent)
+		: defaultAgentsForMode(mode, 3);
+	return {
+		id: r.id,
+		title: r.title ?? 'New chat',
+		mode,
+		generations: clampGenerations(r.generations),
+		agents: clampAgentsToMode(rawAgents, mode),
+		draftTopic: typeof r.draft_topic === 'string' ? r.draft_topic : '',
+		entries: Array.isArray(r.entries) ? r.entries : [],
+		createdAt: new Date(r.created_at).getTime(),
+		updatedAt: new Date(r.updated_at).getTime()
+	};
+}
+
+function listItemToSession(r: ChatListItem): ChatSession {
+	const mode: DiscussionMode = isMode(r.mode) ? r.mode : 'roleplay';
+	return {
+		id: r.id,
+		title: r.title ?? 'New chat',
+		mode,
+		generations: clampGenerations(r.generations),
+		agents: defaultAgentsForMode(mode, 3),
+		draftTopic: typeof r.draft_topic === 'string' ? r.draft_topic : '',
+		entries: [],
+		createdAt: new Date(r.created_at).getTime(),
+		updatedAt: new Date(r.updated_at).getTime()
+	};
+}
+
+function sessionToRemote(s: ChatSession): Record<string, unknown> {
+	return {
+		title: s.title,
+		mode: s.mode,
+		generations: s.generations,
+		draft_topic: s.draftTopic,
+		agents: s.agents,
+		entries: s.entries
+	};
+}
 
 function newId(): string {
 	if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
@@ -57,57 +135,32 @@ function makeSession(partial?: Partial<Pick<ChatSession, 'mode' | 'generations' 
 	};
 }
 
-/** Single exported reactive blob — Svelte requires this pattern for module state. */
 export const workspace = $state({
 	sessions: [] as ChatSession[],
 	activeChatId: null as string | null,
 	hydrated: false
 });
 
-function persist(): void {
-	if (!browser || !workspace.hydrated) return;
-	try {
-		localStorage.setItem(
-			STORAGE_KEY,
-			JSON.stringify({ sessions: workspace.sessions, activeChatId: workspace.activeChatId })
-		);
-	} catch {
-		/* quota */
-	}
-}
+// Debounce map for setChatEntries — one timer per chatId
+const _entriesDebounce = new Map<string, ReturnType<typeof setTimeout>>();
 
-export function hydrateWorkspace(): void {
-	if (!browser || workspace.hydrated) return;
-	workspace.hydrated = true;
+// Chats whose full detail (agents + entries) is already in memory.
+// List endpoint returns stubs; we fetch full detail lazily on first select.
+const _loadedChats = new Set<string>();
 
+async function ensureChatLoaded(id: string): Promise<void> {
+	if (_loadedChats.has(id)) return;
+	if (auth.status !== 'authed') return;
 	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (raw) {
-			const data = JSON.parse(raw) as {
-				sessions?: ChatSession[];
-				activeChatId?: string | null;
-			};
-			workspace.sessions = [];
-			for (const s of data.sessions ?? []) {
-				workspace.sessions.push(normalizeSession(s));
-			}
-			workspace.activeChatId = data.activeChatId ?? workspace.sessions[0]?.id ?? null;
+		const remote = await apiFetch<ChatRemote>(`/api/chats/${id}`);
+		const idx = workspace.sessions.findIndex((s) => s.id === id);
+		if (idx >= 0) {
+			workspace.sessions[idx] = remoteToSession(remote);
 		}
+		_loadedChats.add(id);
 	} catch {
-		/* ignore */
+		/* leave the stub in place */
 	}
-
-	if (workspace.sessions.length === 0) {
-		const s = makeSession();
-		workspace.sessions.push(s);
-		workspace.activeChatId = s.id;
-	}
-
-	if (!workspace.activeChatId || !workspace.sessions.some((s) => s.id === workspace.activeChatId)) {
-		workspace.activeChatId = workspace.sessions[0]?.id ?? null;
-	}
-
-	persist();
 }
 
 function normalizeSession(s: ChatSession): ChatSession {
@@ -157,40 +210,81 @@ function clampGenerations(n: number): number {
 export function selectChat(id: string): void {
 	if (!workspace.sessions.some((s) => s.id === id)) return;
 	workspace.activeChatId = id;
-	persist();
+	void ensureChatLoaded(id);
 }
 
-export function newChat(mode?: DiscussionMode): void {
-	const s = makeSession(mode ? { mode } : undefined);
-	workspace.sessions.unshift(s);
-	workspace.activeChatId = s.id;
-	persist();
+export async function newChat(mode?: DiscussionMode): Promise<void> {
+	const optimistic = makeSession(mode ? { mode } : undefined);
+	workspace.sessions.unshift(optimistic);
+	workspace.activeChatId = optimistic.id;
+
+	if (auth.status === 'authed') {
+		try {
+			const remote = await apiFetch<ChatRemote>('/api/chats', {
+				method: 'POST',
+				body: JSON.stringify(sessionToRemote(optimistic))
+			});
+			const confirmed = remoteToSession(remote);
+			const idx = workspace.sessions.findIndex((s) => s.id === optimistic.id);
+			if (idx >= 0) {
+				workspace.sessions[idx] = confirmed;
+				if (workspace.activeChatId === optimistic.id) {
+					workspace.activeChatId = confirmed.id;
+				}
+			}
+			_loadedChats.add(confirmed.id);
+		} catch {
+			// Roll back the optimistic insert: a local non-UUID id would 422 every
+			// subsequent server call against this chat.
+			const idx = workspace.sessions.findIndex((s) => s.id === optimistic.id);
+			if (idx >= 0) workspace.sessions.splice(idx, 1);
+			if (workspace.activeChatId === optimistic.id) {
+				workspace.activeChatId = workspace.sessions[0]?.id ?? null;
+			}
+		}
+	} else {
+		_loadedChats.add(optimistic.id);
+	}
 }
 
-export function deleteChat(id: string): void {
+export async function deleteChat(id: string): Promise<void> {
 	const idx = workspace.sessions.findIndex((s) => s.id === id);
 	if (idx < 0) return;
+
+	// Cancel any pending debounced PUT for this chat so we don't write to a row
+	// the server is about to (or just did) delete.
+	const t = _entriesDebounce.get(id);
+	if (t !== undefined) clearTimeout(t);
+	_entriesDebounce.delete(id);
+	_loadedChats.delete(id);
+
 	workspace.sessions.splice(idx, 1);
 	if (workspace.activeChatId === id) {
 		workspace.activeChatId = workspace.sessions[0]?.id ?? null;
 	}
 	if (workspace.sessions.length === 0) {
-		const s = makeSession();
-		workspace.sessions.push(s);
-		workspace.activeChatId = s.id;
+		void newChat();
+		return;
 	}
-	persist();
+
+	if (auth.status === 'authed') {
+		try {
+			await apiFetch(`/api/chats/${id}`, { method: 'DELETE' });
+		} catch {
+			/* best-effort */
+		}
+	}
 }
 
 export function activeChat(): ChatSession | null {
 	return workspace.sessions.find((s) => s.id === workspace.activeChatId) ?? null;
 }
 
-export function patchActiveChat(
+export async function patchActiveChat(
 	patch: Partial<
 		Pick<ChatSession, 'mode' | 'generations' | 'agents' | 'title' | 'entries' | 'draftTopic'>
 	>
-): void {
+): Promise<void> {
 	const id = workspace.activeChatId;
 	if (!id) return;
 	const i = workspace.sessions.findIndex((s) => s.id === id);
@@ -209,12 +303,43 @@ export function patchActiveChat(
 		agents: nextAgents,
 		updatedAt: Date.now()
 	};
-	persist();
+
+	// entries-only changes go via setChatEntries path; skip PATCH for those
+	const hasNonEntryChange = patch.mode !== undefined
+		|| patch.generations !== undefined
+		|| patch.agents !== undefined
+		|| patch.title !== undefined
+		|| patch.draftTopic !== undefined;
+
+	if (auth.status === 'authed' && hasNonEntryChange) {
+		const remotePayload: Record<string, unknown> = {};
+		if (patch.mode !== undefined) remotePayload.mode = patch.mode;
+		if (patch.generations !== undefined) remotePayload.generations = nextG;
+		if (patch.agents !== undefined) remotePayload.agents = nextAgents;
+		if (patch.title !== undefined) remotePayload.title = patch.title;
+		if (patch.draftTopic !== undefined) remotePayload.draft_topic = patch.draftTopic;
+
+		try {
+			const remote = await apiFetch<ChatRemote>(`/api/chats/${id}`, {
+				method: 'PATCH',
+				body: JSON.stringify(remotePayload)
+			});
+			const idx2 = workspace.sessions.findIndex((s) => s.id === id);
+			if (idx2 >= 0) {
+				// preserve local entries (remote full shape may not include them on list endpoint)
+				workspace.sessions[idx2] = {
+					...remoteToSession(remote),
+					entries: workspace.sessions[idx2].entries
+				};
+			}
+		} catch {
+			/* optimistic stays */
+		}
+	}
 }
 
-/** Switch mode and reset agents to that mode's defaults. */
 export function switchMode(mode: DiscussionMode): void {
-	patchActiveChat({ mode, agents: defaultAgentsForMode(mode, 3) });
+	void patchActiveChat({ mode, agents: defaultAgentsForMode(mode, 3) });
 }
 
 export function addAgent(): void {
@@ -231,7 +356,7 @@ export function addAgent(): void {
 		persona: tpl.persona,
 		model: FALLBACK_MODEL_ROTATION[c.agents.length % FALLBACK_MODEL_ROTATION.length]
 	};
-	patchActiveChat({ agents: [...c.agents, next] });
+	void patchActiveChat({ agents: [...c.agents, next] });
 }
 
 export function removeAgent(agentId: string): void {
@@ -239,13 +364,13 @@ export function removeAgent(agentId: string): void {
 	if (!c) return;
 	const meta = MODE_META[c.mode];
 	if (c.agents.length <= meta.minAgents) return;
-	patchActiveChat({ agents: c.agents.filter((a) => a.id !== agentId) });
+	void patchActiveChat({ agents: c.agents.filter((a) => a.id !== agentId) });
 }
 
 export function updateAgent(agentId: string, patch: Partial<Omit<Agent, 'id'>>): void {
 	const c = activeChat();
 	if (!c) return;
-	patchActiveChat({
+	void patchActiveChat({
 		agents: c.agents.map((a) => (a.id === agentId ? { ...a, ...patch } : a))
 	});
 }
@@ -253,7 +378,7 @@ export function updateAgent(agentId: string, patch: Partial<Omit<Agent, 'id'>>):
 export function resetAgentsToDefaults(): void {
 	const c = activeChat();
 	if (!c) return;
-	patchActiveChat({ agents: defaultAgentsForMode(c.mode, c.agents.length) });
+	void patchActiveChat({ agents: defaultAgentsForMode(c.mode, c.agents.length) });
 }
 
 export function setChatEntries(chatId: string, entries: DiscussionEntry[]): void {
@@ -264,10 +389,28 @@ export function setChatEntries(chatId: string, entries: DiscussionEntry[]): void
 		entries: [...entries],
 		updatedAt: Date.now()
 	};
-	persist();
+
+	if (auth.status !== 'authed') return;
+
+	const existing = _entriesDebounce.get(chatId);
+	if (existing !== undefined) clearTimeout(existing);
+
+	const timer = setTimeout(() => {
+		_entriesDebounce.delete(chatId);
+		const cur = workspace.sessions.find((s) => s.id === chatId);
+		if (!cur) return;
+		apiFetch(`/api/chats/${chatId}/entries`, {
+			method: 'PUT',
+			body: JSON.stringify({ entries: cur.entries })
+		}).catch(() => {
+			/* best-effort */
+		});
+	}, 400);
+
+	_entriesDebounce.set(chatId, timer);
 }
 
-export function bumpTitleFromTopic(chatId: string, topic: string): void {
+export async function bumpTitleFromTopic(chatId: string, topic: string): Promise<void> {
 	const t = topic.trim();
 	if (!t) return;
 	const title = t.length > 56 ? `${t.slice(0, 53)}…` : t;
@@ -275,15 +418,119 @@ export function bumpTitleFromTopic(chatId: string, topic: string): void {
 	if (i < 0) return;
 	if (workspace.sessions[i].title === 'New chat' || workspace.sessions[i].title.length < 4) {
 		workspace.sessions[i] = { ...workspace.sessions[i], title, updatedAt: Date.now() };
-		persist();
+
+		if (auth.status === 'authed') {
+			try {
+				await apiFetch<ChatRemote>(`/api/chats/${chatId}`, {
+					method: 'PATCH',
+					body: JSON.stringify({ title })
+				});
+			} catch {
+				/* optimistic stays */
+			}
+		}
 	}
 }
 
-export function renameChat(chatId: string, title: string): void {
+export async function renameChat(chatId: string, title: string): Promise<void> {
 	const i = workspace.sessions.findIndex((s) => s.id === chatId);
 	if (i < 0) return;
 	const t = title.trim();
 	if (!t) return;
 	workspace.sessions[i] = { ...workspace.sessions[i], title: t.slice(0, 80), updatedAt: Date.now() };
-	persist();
+
+	if (auth.status === 'authed') {
+		try {
+			await apiFetch<ChatRemote>(`/api/chats/${chatId}`, {
+				method: 'PATCH',
+				body: JSON.stringify({ title: t.slice(0, 80) })
+			});
+		} catch {
+			/* optimistic stays */
+		}
+	}
+}
+
+async function runImport(userId: string): Promise<void> {
+	if (!browser) return;
+	const importedKey = `agora-imported-${userId}`;
+	if (localStorage.getItem(importedKey)) return;
+
+	const raw = localStorage.getItem(STORAGE_KEY);
+	if (!raw) return;
+
+	let legacy: { sessions?: ChatSession[] } | null = null;
+	try {
+		legacy = JSON.parse(raw) as { sessions?: ChatSession[] };
+	} catch {
+		return;
+	}
+
+	const sessions = legacy?.sessions ?? [];
+	if (sessions.length === 0) return;
+
+	try {
+		await apiFetch('/api/chats/import', {
+			method: 'POST',
+			body: JSON.stringify({ sessions })
+		});
+		localStorage.setItem(importedKey, '1');
+		localStorage.removeItem(STORAGE_KEY);
+	} catch {
+		/* best-effort; don't remove legacy data on failure */
+	}
+}
+
+export async function hydrateWorkspace(): Promise<void> {
+	if (!browser || workspace.hydrated) return;
+	workspace.hydrated = true;
+
+	if (auth.status === 'authed' && auth.user) {
+		// One-shot legacy import before fetching list
+		await runImport(auth.user.id);
+
+		try {
+			const list = await apiFetch<ChatListItem[]>('/api/chats');
+			workspace.sessions = list.map(listItemToSession);
+		} catch {
+			workspace.sessions = [];
+		}
+
+		if (workspace.sessions.length === 0) {
+			await newChat();
+		} else {
+			workspace.activeChatId = workspace.sessions[0]?.id ?? null;
+			if (workspace.activeChatId) {
+				void ensureChatLoaded(workspace.activeChatId);
+			}
+		}
+	} else {
+		// Guest fallback — read localStorage so the page isn't blank
+		try {
+			const raw = localStorage.getItem(STORAGE_KEY);
+			if (raw) {
+				const data = JSON.parse(raw) as {
+					sessions?: ChatSession[];
+					activeChatId?: string | null;
+				};
+				workspace.sessions = [];
+				for (const s of data.sessions ?? []) {
+					workspace.sessions.push(normalizeSession(s));
+				}
+				workspace.activeChatId = data.activeChatId ?? workspace.sessions[0]?.id ?? null;
+			}
+		} catch {
+			/* ignore */
+		}
+
+		if (workspace.sessions.length === 0) {
+			const s = makeSession();
+			workspace.sessions.push(s);
+			workspace.activeChatId = s.id;
+		}
+
+		if (!workspace.activeChatId || !workspace.sessions.some((s) => s.id === workspace.activeChatId)) {
+			workspace.activeChatId = workspace.sessions[0]?.id ?? null;
+		}
+	}
 }

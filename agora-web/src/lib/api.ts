@@ -1,8 +1,11 @@
 import { formatTurnError, NETWORK_ERROR_MESSAGE, safeHttpErrorMessage } from '$lib/apiErrors';
 import { sleep } from '$lib/util';
+import { apiFetch, ApiError, getAccessToken } from '$lib/auth/apiClient';
 
 /** Backend API base. Set `VITE_API_URL` at build time if needed. */
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// `??` (not `||`) so an explicit empty string at build time stays empty —
+// the docker build bakes VITE_API_URL="" to make calls same-origin via Caddy.
+export const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 /** Thrown for HTTP errors after mapping to a safe message (never includes response body). */
 export class ChatApiError extends Error {
@@ -79,29 +82,17 @@ export async function callAI(
 	}
 
 	try {
-		const response = await fetch(`${API_BASE}/api/chat`, {
+		const data = await apiFetch<{ content: string }>('/api/chat', {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ model, role, context })
 		});
-
-		if (!response.ok) {
-			try {
-				await response.text();
-			} catch {
-				/* drain body */
-			}
-			throw new ChatApiError(safeHttpErrorMessage(response.status));
-		}
-
-		const data = await response.json();
-		return data.content as string;
+		return data.content;
 	} catch (error) {
-		if (error instanceof ChatApiError) {
+		if (error instanceof ApiError) {
 			if (import.meta.env.DEV) {
 				console.error('callAI rejected:', error.message);
 			}
-			return formatTurnError(error.message);
+			return formatTurnError(safeHttpErrorMessage(error.status, error.detail));
 		}
 		if (import.meta.env.DEV) {
 			console.error('Error calling AI:', error);
@@ -128,23 +119,50 @@ export async function streamAI(
 	if (opts.signal.aborted) return full;
 
 	try {
+		const token = getAccessToken();
+
+		const headers: Record<string, string> = {
+			'Content-Type': 'application/json',
+			Accept: 'text/event-stream'
+		};
+		if (token) {
+			headers['Authorization'] = `Bearer ${token}`;
+		}
+
 		const response = await fetch(`${API_BASE}/api/chat`, {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Accept: 'text/event-stream'
-			},
+			headers,
 			body: JSON.stringify({ model, role, context, stream: true }),
-			signal: opts.signal
+			signal: opts.signal,
+			credentials: 'include'
 		});
 
+		if (response.status === 401 && !opts.signal.aborted) {
+			const data = await apiFetch<{ content: string }>('/api/chat', {
+				method: 'POST',
+				body: JSON.stringify({ model, role, context })
+			});
+			const text = data.content ?? '';
+			const chunks = text.split(/(\s+)/);
+			for (const chunk of chunks) {
+				if (opts.signal.aborted) break;
+				if (!chunk) continue;
+				full += chunk;
+				opts.onChunk(chunk);
+				await sleep(18);
+			}
+			return full;
+		}
+
 		if (!response.ok) {
+			let detail: string | undefined;
 			try {
-				await response.text();
+				const body = (await response.json()) as { detail?: string };
+				detail = body.detail;
 			} catch {
 				/* drain body */
 			}
-			throw new ChatApiError(safeHttpErrorMessage(response.status));
+			throw new ChatApiError(safeHttpErrorMessage(response.status, detail));
 		}
 
 		const contentType = response.headers.get('content-type') ?? '';

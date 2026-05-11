@@ -1,3 +1,6 @@
+import { API_BASE } from '$lib/api';
+import { getAccessToken } from '$lib/auth/apiClient';
+
 export interface ModelOption {
 	id: string;
 	name: string;
@@ -14,8 +17,14 @@ export const FALLBACK_MODELS: ModelOption[] = [
 ];
 
 export async function loadOpenRouterModels(): Promise<ModelOption[]> {
+	// A 400 here means no key is set. We silently fall back to FALLBACK_MODELS
+	// because the workspace already shows a toast when the user tries to run a
+	// session without a key — a second toast here would be redundant noise.
 	try {
-		const res = await fetch('/api/openrouter/models');
+		const token = getAccessToken();
+		const headers: Record<string, string> = {};
+		if (token) headers['Authorization'] = `Bearer ${token}`;
+		const res = await fetch(`${API_BASE}/api/openrouter/models`, { headers, credentials: 'include' });
 		if (!res.ok) return FALLBACK_MODELS;
 		const data = (await res.json()) as { models?: ModelOption[]; error?: string };
 		if (data.models && data.models.length > 0) return data.models;
