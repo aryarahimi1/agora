@@ -1,6 +1,8 @@
+import json
 import logging
 import os
-from typing import Dict, List
+import time
+from typing import Any, Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -11,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+REQUEST_TIMEOUT = 60
+MAX_RETRIES = 3
+RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
 
 MODELS: Dict[str, str] = {
     "AI_1": "openai/gpt-4o-mini",
@@ -52,33 +58,120 @@ COLLABORATIVE_ROLES = {
 }
 
 
-def call_ai(model: str, role: str, context: List[Dict[str, str]]) -> str:
+def _post_completion(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Single OpenRouter call with retry on transient failures + exponential backoff."""
     if not OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
-    messages = [{"role": "system", "content": f"You are {role}. Respond accordingly."}] + context
+    last_error: Optional[str] = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.post(
+                API_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            last_error = f"network error: {exc}"
+            logger.warning("OpenRouter attempt %s failed: %s", attempt, last_error)
+            if attempt == MAX_RETRIES:
+                break
+            time.sleep(2 ** (attempt - 1))
+            continue
 
-    response = requests.post(
-        API_URL,
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={"model": model, "messages": messages},
-        timeout=60,
+        if response.status_code == 200:
+            return response.json()
+
+        body = response.text[:500] if response.text else ""
+        last_error = f"HTTP {response.status_code}: {body}"
+        logger.warning("OpenRouter attempt %s failed: %s", attempt, last_error)
+
+        if response.status_code not in RETRYABLE_STATUS or attempt == MAX_RETRIES:
+            break
+        time.sleep(2 ** (attempt - 1))
+
+    raise RuntimeError(f"OpenRouter request failed after {MAX_RETRIES} attempts: {last_error}")
+
+
+def call_ai(model: str, role: str, context: List[Dict[str, str]]) -> str:
+    """Free-form text completion. Used for the discussion modes."""
+    messages = [
+        {"role": "system", "content": f"You are {role}. Respond accordingly."},
+    ] + context
+
+    data = _post_completion({"model": model, "messages": messages})
+    if "choices" not in data or not data["choices"]:
+        raise RuntimeError("Invalid response from OpenRouter: no choices")
+    return data["choices"][0]["message"]["content"]
+
+
+def call_ai_structured(
+    model: str,
+    instruction: str,
+    user_input: str,
+    schema_hint: Dict[str, Any],
+    max_attempts: int = 2,
+) -> Dict[str, Any]:
+    """
+    Ask a model to return JSON conforming to a schema_hint, validate it, and
+    retry once with the parser error fed back as a correction prompt.
+
+    schema_hint is a small JSON-shape example included in the system prompt.
+    Validation here is structural (json.loads + required-key check); pair with
+    pydantic / jsonschema in production for stricter guarantees.
+    """
+    required_keys = list(schema_hint.keys())
+    system = (
+        f"{instruction}\n\n"
+        f"Reply ONLY with valid JSON matching this shape (no prose, no markdown fences):\n"
+        f"{json.dumps(schema_hint, indent=2)}"
     )
 
-    if response.status_code != 200:
-        body = response.text[:2000] if response.text else ""
-        logger.error(
-            "OpenRouter HTTP %s: %s",
-            response.status_code,
-            body,
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_input},
+    ]
+
+    last_error: Optional[str] = None
+    for attempt in range(1, max_attempts + 1):
+        data = _post_completion(
+            {
+                "model": model,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+            }
         )
-        raise RuntimeError("OpenRouter request failed")
+        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-    data = response.json()
-    if "choices" not in data or not data["choices"]:
-        raise RuntimeError("Invalid response from OpenRouter")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            last_error = f"invalid JSON: {exc.msg}"
+            messages.append({"role": "assistant", "content": raw})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Your previous reply was not valid JSON ({last_error}). Reply again with valid JSON only.",
+                }
+            )
+            continue
 
-    return data["choices"][0]["message"]["content"]
+        missing = [k for k in required_keys if k not in parsed]
+        if missing:
+            last_error = f"missing required keys: {missing}"
+            messages.append({"role": "assistant", "content": raw})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Your previous reply was missing required keys ({missing}). Include them and reply again.",
+                }
+            )
+            continue
+
+        return parsed
+
+    raise RuntimeError(f"Model failed to produce valid structured output after {max_attempts} attempts: {last_error}")

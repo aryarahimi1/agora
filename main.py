@@ -85,3 +85,12 @@ def chat(req: ChatRequest) -> ChatResponse:
 @app.get("/")
 def root() -> Dict[str, str]:
     return {"status": "ok", "docs": "/docs"}
+
+
+@app.get("/health")
+def health() -> Dict[str, Any]:
+    import os
+    return {
+        "status": "ok",
+        "openrouter_key_configured": bool(os.getenv("OPENROUTER_API_KEY")),
+    }

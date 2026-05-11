@@ -1,42 +1,50 @@
-# sv
+# debator-web
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SvelteKit 2 frontend for [Debator](../README.md) — the multi-agent LLM discussion platform.
 
-## Creating a project
+## Stack
 
-If you're seeing this, you've probably already done this step. Congrats!
+- SvelteKit 2 + Svelte 5 (runes)
+- TypeScript
+- Tailwind CSS 4
+- Bits UI (headless components)
+- Vite
 
-```sh
-# create a new project
-npx sv create my-app
-```
+## Develop
 
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-npx sv@0.15.3 create --template minimal --types ts --install npm debator-web
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+```bash
+npm install
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+Set `VITE_API_URL` to point at a non-local backend (defaults to `http://localhost:8000`):
 
-To create a production version of your app:
+```bash
+VITE_API_URL=https://api.example.com npm run dev
+```
 
-```sh
+## Build
+
+```bash
 npm run build
+npm run preview
 ```
 
-You can preview the production build with `npm run preview`.
+The default adapter is `@sveltejs/adapter-auto`. For production, swap in the adapter that matches your host (Vercel, Netlify, Node, etc.).
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+## Layout
+
+```
+src/
+  routes/
+    +page.svelte          # Landing
+    workspace/            # Main multi-agent workspace
+    debate/               # Mode-specific routes
+    consensus/
+    brainstorm/
+    roleplay/
+    collaborative/
+  lib/
+    chat/                 # Orchestration, session state, model catalog
+    components/           # UI (Bits UI + Tailwind)
+```
