@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { auth, logout, setOpenrouterKeySet } from '$lib/auth/auth.svelte';
 	import { apiFetch } from '$lib/auth/apiClient';
 	import { ApiError } from '$lib/auth/apiClient';
@@ -8,6 +9,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import * as Card from '$lib/components/ui/card';
 	import { Separator } from '$lib/components/ui/separator';
+	import { ArrowLeftIcon } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 
 	interface AccountPayload {
@@ -109,6 +111,14 @@
 
 <div class="flex min-h-screen items-center justify-center px-4 py-12">
 	<div class="flex w-full max-w-sm flex-col gap-5">
+		<a
+			href={resolve('/workspace')}
+			class="text-muted-foreground hover:text-foreground -mb-1 inline-flex w-fit items-center gap-1.5 text-sm transition-colors"
+		>
+			<ArrowLeftIcon class="size-3.5" />
+			Back to chat
+		</a>
+
 		<!-- Profile -->
 		<Card.Root>
 			<Card.Header>
