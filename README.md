@@ -1,4 +1,4 @@
-# Debator
+# Agora
 
 A multi-agent LLM discussion platform. You give it a topic and a mode; three (or more) language models from different providers — GPT‑4o‑mini, Gemini 2.5 Pro, DeepSeek, Claude 3.5 Sonnet, and others — talk to each other in real time.
 
@@ -23,7 +23,7 @@ Each model is assigned a per-mode persona via system prompt; turns pass through 
 ```
 ┌─────────────────┐    POST /api/chat   ┌─────────────┐    HTTPS    ┌─────────────┐
 │ SvelteKit UI    │ ──────────────────► │  FastAPI    │ ──────────► │ OpenRouter  │
-│ (debator-web/)  │ ◄───── stream ───── │  (main.py)  │ ◄────────── │ (any model) │
+│ (agora-web/)    │ ◄───── stream ───── │  (main.py)  │ ◄────────── │ (any model) │
 └─────────────────┘                     └─────────────┘             └─────────────┘
 ```
 
@@ -56,7 +56,7 @@ Backend at `http://localhost:8000` (interactive docs at `/docs`).
 ### 3. Frontend
 
 ```bash
-cd debator-web
+cd agora-web
 npm install
 npm run dev
 ```
@@ -71,7 +71,7 @@ To point the frontend at a non-local backend, set `VITE_API_URL=https://your-api
 ai_core.py           # OpenRouter client, model & role definitions, validation/retry
 main.py              # FastAPI app: /api/chat, /api/config, /health
 requirements.txt
-debator-web/         # SvelteKit frontend
+agora-web/           # SvelteKit frontend
   src/
     routes/          # /, /workspace, /debate, /consensus, /brainstorm, /roleplay, /collaborative
     lib/
