@@ -1,0 +1,49 @@
+# VCS / local tooling
+.git
+.gitignore
+.github
+
+# Python
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets / env (compose passes vars in explicitly; image needs none of these)
+.env
+.env.*
+
+# Frontend tree — has its own image
+agora-web/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Local docs / scratch
+.impeccable/
+DESIGN.md
+PRODUCT.md
+
+# Other tooling
+.agents/
+.claude/
+.context/
+skills-lock.json
+
+# Build artifacts
+.svelte-kit/
+node_modules/
+build/
+dist/
+
+# Docker compose / docs we don't want copied into image context unnecessarily
+docker-compose.yml
+docker-compose.*.yml
+Caddyfile
+README.md

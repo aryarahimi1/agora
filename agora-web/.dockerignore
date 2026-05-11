@@ -1,0 +1,43 @@
+# Node / SvelteKit build artifacts (built inside the image)
+node_modules
+.svelte-kit
+build
+.output
+.vercel
+.netlify
+.wrangler
+
+# VCS / local tooling
+.git
+.gitignore
+.github
+
+# Secrets — build is configured via build-args, not .env files
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+
+# Local docs / scratch
+.impeccable
+DESIGN.md
+PRODUCT.md
+
+# Tooling caches
+.agents/
+.claude/
+.context/
+skills-lock.json
+
+# Vite scratch
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Image / compose files we don't want inside the build context
+Dockerfile
+.dockerignore

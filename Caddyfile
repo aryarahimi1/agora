@@ -1,0 +1,51 @@
+# Agora reverse proxy.
+#
+# Dev / local layout: Caddy listens on :80 inside the container (mapped to
+# :8080 on the host by compose). The browser hits http://localhost:8080 and
+# never knows there are two upstreams behind it.
+#
+# Routing:
+#   /api/*   -> FastAPI backend  (e.g. /api/chat, /api/chats, /api/config, /api/openrouter)
+#   /auth/*  -> FastAPI backend  (login, refresh, logout — sets the refresh cookie)
+#   /health  -> FastAPI backend  (so `curl http://localhost:8080/health` works)
+#   /*       -> SvelteKit (Node adapter) frontend
+#
+# Going to production with a real domain:
+#   1) Replace `:80` below with `your.domain.tld`
+#   2) Change the compose port mapping to "80:80" (and "443:443")
+#   3) That's it — Caddy will request a Let's Encrypt cert automatically.
+#      Make sure the host has 80/443 reachable from the internet for ACME.
+
+{
+	# Caddy global options. Empty for local; production swaps in an email:
+	# email you@example.com
+	admin off
+}
+
+:80 {
+	encode zstd gzip
+
+	# Backend routes — order matters: matchers are evaluated top-down.
+	@api {
+		path /api/* /auth/* /health
+	}
+	handle @api {
+		reverse_proxy api:8000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Everything else -> SvelteKit. The Node adapter serves both static assets
+	# (under /_app/*) and SSR'd pages from the same port.
+	handle {
+		reverse_proxy web:3000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+}

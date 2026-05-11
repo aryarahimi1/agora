@@ -1,0 +1,124 @@
+# Agora full-stack compose.
+#
+# Quick start (fresh clone):
+#   docker compose up -d
+#   open http://localhost:8080
+#   sign up, then add your OpenRouter API key in Account settings.
+#
+# Optional .env: copy .env.docker.example to .env to override defaults
+# (Postgres credentials, JWT_SECRET, CORS origins, etc.)
+#
+# Then open http://localhost:8080 . Caddy fronts both the SvelteKit UI and the
+# FastAPI backend on a single port so the browser sees them as same-origin.
+#
+# Useful one-liners:
+#   docker compose ps                  # see service health
+#   docker compose logs -f api         # tail the backend
+#   docker compose exec db psql -U $POSTGRES_USER $POSTGRES_DB   # poke the DB
+#   docker compose down                # stop, keep volumes
+#   docker compose down -v             # stop and wipe the database
+
+name: agora
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agora_local}
+      POSTGRES_DB: ${POSTGRES_DB:-agora}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    # Exposed to the host so local uvicorn (the `npm run dev` flow) can also use
+    # the same database. This is only needed for the optional non-docker dev
+    # flow — comment this out if you only ever run the docker stack.
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Hardcode the in-network DSN — db hostname comes from compose DNS.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agora}:${POSTGRES_PASSWORD:-agora_local}@db:5432/${POSTGRES_DB:-agora}
+      # Empty by default; the api auto-generates a secret and persists it to
+      # /data/jwt_secret in the api_data volume. Set this only to pin a value.
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_SECRET_FILE: /data/jwt_secret
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-900}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Caddy fronts the app on http://localhost:8080 — that's the only origin
+      # the browser will use, so it's also the only CORS origin we need.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      # Auto-generated JWT secret means we can stay strict in production mode
+      # without forcing the user to do any setup.
+      ENV: ${ENV:-production}
+    volumes:
+      # Persists the auto-generated jwt_secret across container restarts.
+      - api_data:/data
+    healthcheck:
+      # Note: /health returns 200 even when the DB is `down` so this only
+      # confirms the API process is responsive. The DB is gated separately via
+      # `depends_on: db: service_healthy`, so by the time the api starts the
+      # DB is already up. Keeping the check simple avoids brittle string-match
+      # logic; the trade-off is that a mid-life DB outage won't flip the api
+      # to unhealthy.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    build:
+      context: ./agora-web
+      dockerfile: Dockerfile
+      args:
+        # Empty string => same-origin /api and /auth calls, proxied by Caddy.
+        VITE_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      # SvelteKit's Node adapter uses ORIGIN to validate form-action requests
+      # (CSRF). Must match the public URL the browser uses.
+      ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      # Public entry. Bind 8080 on the host so we don't fight whatever else is
+      # already on :80. Change to "80:80" once you're putting Caddy on a real
+      # domain — Caddy will auto-provision TLS, see Caddyfile.
+      - "8080:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db_data:
+  api_data:
+  caddy_data:
+  caddy_config:

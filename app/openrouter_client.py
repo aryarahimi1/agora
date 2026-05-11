@@ -5,14 +5,11 @@ import time
 from typing import Any, Dict, List, Optional
 
 import requests
-from dotenv import load_dotenv
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 REQUEST_TIMEOUT = 60
 MAX_RETRIES = 3
@@ -58,9 +55,16 @@ COLLABORATIVE_ROLES = {
 }
 
 
-def _post_completion(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Single OpenRouter call with retry on transient failures + exponential backoff."""
-    if not OPENROUTER_API_KEY:
+def _get_api_key() -> str:
+    from app.config import settings
+    return settings.OPENROUTER_API_KEY or os.getenv("OPENROUTER_API_KEY", "")
+
+
+def _post_completion(
+    payload: Dict[str, Any], *, api_key: Optional[str] = None
+) -> Dict[str, Any]:
+    resolved_key = api_key or _get_api_key()
+    if not resolved_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
     last_error: Optional[str] = None
@@ -69,7 +73,7 @@ def _post_completion(payload: Dict[str, Any]) -> Dict[str, Any]:
             response = requests.post(
                 API_URL,
                 headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Authorization": f"Bearer {resolved_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
@@ -94,16 +98,19 @@ def _post_completion(payload: Dict[str, Any]) -> Dict[str, Any]:
             break
         time.sleep(2 ** (attempt - 1))
 
-    raise RuntimeError(f"OpenRouter request failed after {MAX_RETRIES} attempts: {last_error}")
+    raise RuntimeError(
+        f"OpenRouter request failed after {MAX_RETRIES} attempts: {last_error}"
+    )
 
 
-def call_ai(model: str, role: str, context: List[Dict[str, str]]) -> str:
-    """Free-form text completion. Used for the discussion modes."""
+def call_ai(
+    model: str, role: str, context: List[Dict[str, str]], *, api_key: Optional[str] = None
+) -> str:
     messages = [
         {"role": "system", "content": f"You are {role}. Respond accordingly."},
     ] + context
 
-    data = _post_completion({"model": model, "messages": messages})
+    data = _post_completion({"model": model, "messages": messages}, api_key=api_key)
     if "choices" not in data or not data["choices"]:
         raise RuntimeError("Invalid response from OpenRouter: no choices")
     return data["choices"][0]["message"]["content"]
@@ -115,15 +122,9 @@ def call_ai_structured(
     user_input: str,
     schema_hint: Dict[str, Any],
     max_attempts: int = 2,
+    *,
+    api_key: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Ask a model to return JSON conforming to a schema_hint, validate it, and
-    retry once with the parser error fed back as a correction prompt.
-
-    schema_hint is a small JSON-shape example included in the system prompt.
-    Validation here is structural (json.loads + required-key check); pair with
-    pydantic / jsonschema in production for stricter guarantees.
-    """
     required_keys = list(schema_hint.keys())
     system = (
         f"{instruction}\n\n"
@@ -143,7 +144,8 @@ def call_ai_structured(
                 "model": model,
                 "messages": messages,
                 "response_format": {"type": "json_object"},
-            }
+            },
+            api_key=api_key,
         )
         raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
@@ -174,4 +176,25 @@ def call_ai_structured(
 
         return parsed
 
-    raise RuntimeError(f"Model failed to produce valid structured output after {max_attempts} attempts: {last_error}")
+    raise RuntimeError(
+        f"Model failed to produce valid structured output after {max_attempts} attempts: {last_error}"
+    )
+
+
+def fetch_models(*, api_key: Optional[str] = None) -> List[Dict[str, Any]]:
+    resolved_key = api_key or _get_api_key()
+    try:
+        resp = requests.get(
+            MODELS_URL,
+            headers={"Authorization": f"Bearer {resolved_key}"} if resolved_key else {},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return [
+                {"id": m.get("id", ""), "name": m.get("name", m.get("id", ""))}
+                for m in data.get("data", [])
+            ]
+    except requests.RequestException as exc:
+        logger.warning("Failed to fetch OpenRouter models: %s", exc)
+    return []
