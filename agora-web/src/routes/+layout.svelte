@@ -13,7 +13,7 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<title>Debator — AI Discussion Hub</title>
+	<title>Agora — Multi-Agent AI Discussions</title>
 </svelte:head>
 
 <ModeWatcher defaultMode="dark" />

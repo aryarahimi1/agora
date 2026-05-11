@@ -1,6 +1,6 @@
-# debator-web
+# agora-web
 
-SvelteKit 2 frontend for [Debator](../README.md) — the multi-agent LLM discussion platform.
+SvelteKit 2 frontend for [Agora](../README.md) — the multi-agent LLM discussion platform.
 
 ## Stack
 

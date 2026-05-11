@@ -19,7 +19,7 @@ from ai_core import (
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI Discussion API")
+app = FastAPI(title="Agora API")
 
 app.add_middleware(
     CORSMiddleware,

@@ -28,7 +28,7 @@
 			<SparklesIcon class="size-3.5" />
 			Multi-agent · OpenRouter
 		</Badge>
-		<h1 class="text-brand text-4xl font-extrabold tracking-tight sm:text-5xl">Debator</h1>
+		<h1 class="text-brand text-4xl font-extrabold tracking-tight sm:text-5xl">Agora</h1>
 		<p class="text-muted-foreground mx-auto mt-4 max-w-xl text-lg leading-relaxed">
 			Run structured discussions between multiple AI models. Orchestrate roleplay, consensus,
 			brainstorms, debates, and collaborative teaching—all from one polished workspace.

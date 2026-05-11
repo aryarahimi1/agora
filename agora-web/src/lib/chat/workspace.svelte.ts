@@ -8,7 +8,7 @@ import {
 	type DiscussionMode
 } from '$lib/chat/types';
 
-const STORAGE_KEY = 'debator-workspace-v4';
+const STORAGE_KEY = 'agora-workspace-v1';
 
 const FALLBACK_MODEL_ROTATION: string[] = [
 	DEFAULT_MODELS_MAP.AI_1,

@@ -52,7 +52,7 @@
 				class="from-primary grid size-8 place-items-center rounded-lg bg-gradient-to-br via-fuchsia-500 to-amber-400 text-base shadow-sm"
 				>◇</span
 			>
-			<span class="text-brand text-base font-bold tracking-tight">Debator</span>
+			<span class="text-brand text-base font-bold tracking-tight">Agora</span>
 		</a>
 
 		<Button class="w-full justify-center font-semibold" onclick={() => newChat()}>
