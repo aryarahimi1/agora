@@ -2,12 +2,60 @@
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
 
-	let { source = '' }: { source?: string } = $props();
+	let {
+		source = '',
+		streaming = false
+	}: { source?: string; streaming?: boolean } = $props();
 
 	marked.use({ gfm: true, breaks: true });
 
+	// While a message is streaming, marked.parse + DOMPurify on the entire
+	// growing string runs once per token (50–100/sec), and {@html} replaces
+	// every child node each time. That is what makes the page lag when the
+	// user tries to scroll. Throttle the parse to at most ~10/sec during
+	// streaming, then commit the final source immediately on completion.
+	const STREAM_THROTTLE_MS = 100;
+
+	let rendered = $state('');
+	let lastRenderedAt = 0;
+	let pending: ReturnType<typeof setTimeout> | null = null;
+
+	$effect(() => {
+		const s = source;
+		if (!streaming) {
+			if (pending !== null) {
+				clearTimeout(pending);
+				pending = null;
+			}
+			rendered = s;
+			lastRenderedAt = performance.now();
+			return;
+		}
+
+		const now = performance.now();
+		const elapsed = now - lastRenderedAt;
+		if (elapsed >= STREAM_THROTTLE_MS) {
+			rendered = s;
+			lastRenderedAt = now;
+			return;
+		}
+
+		if (pending !== null) return;
+		pending = setTimeout(() => {
+			pending = null;
+			rendered = source;
+			lastRenderedAt = performance.now();
+		}, STREAM_THROTTLE_MS - elapsed);
+	});
+
+	$effect(() => {
+		return () => {
+			if (pending !== null) clearTimeout(pending);
+		};
+	});
+
 	const html = $derived.by(() => {
-		const raw = marked.parse(source ?? '', { async: false }) as string;
+		const raw = marked.parse(rendered ?? '', { async: false }) as string;
 		if (typeof window === 'undefined') return raw;
 		return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
 	});

@@ -14,14 +14,25 @@
 	let scroller: HTMLElement | null = $state(null);
 	let pinned = $state(true);
 
-	const tick = $derived(
-		entries.reduce((s, e) => s + e.response.length, entries.length)
-	);
+	// Autoscroll only reacts to the *streaming* entry's growth, so settled
+	// messages don't keep re-triggering effects when the user is scrolling
+	// back through history.
+	const streamingTick = $derived.by(() => {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const e = entries[i];
+			if (e.streaming) return `${i}:${e.response.length}`;
+		}
+		return `idle:${entries.length}`;
+	});
+
+	let scrollScheduled = false;
+	let lastScrollAt = 0;
 
 	function onScrollerScroll(): void {
 		if (!scroller) return;
 		const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-		pinned = distance < 96;
+		const next = distance < 96;
+		if (next !== pinned) pinned = next;
 	}
 
 	$effect(() => {
@@ -34,12 +45,35 @@
 	});
 
 	$effect(() => {
-		void tick;
+		void streamingTick;
 		if (!scroller || !pinned) return;
-		const el = scroller;
-		requestAnimationFrame(() => {
-			el.scrollTop = el.scrollHeight;
+		if (scrollScheduled) return;
+		const now = performance.now();
+		// Cap autoscroll work to ~16 FPS during streaming so scroll input wins.
+		if (now - lastScrollAt < 60) {
+			scrollScheduled = true;
+			const id = window.setTimeout(() => {
+				scrollScheduled = false;
+				if (!scroller || !pinned) return;
+				scroller.scrollTop = scroller.scrollHeight;
+				lastScrollAt = performance.now();
+			}, 60 - (now - lastScrollAt));
+			return () => {
+				window.clearTimeout(id);
+				scrollScheduled = false;
+			};
+		}
+		scrollScheduled = true;
+		const raf = requestAnimationFrame(() => {
+			scrollScheduled = false;
+			if (!scroller || !pinned) return;
+			scroller.scrollTop = scroller.scrollHeight;
+			lastScrollAt = performance.now();
 		});
+		return () => {
+			cancelAnimationFrame(raf);
+			scrollScheduled = false;
+		};
 	});
 
 	function avatarTint(hue: number | undefined): string {
@@ -76,6 +110,7 @@
 		<article
 			class="group flex gap-4"
 			class:is-streaming={entry.streaming}
+			class:is-settled={!entry.streaming}
 			in:fly={{ y: 6, duration: 280, easing: quintOut }}
 		>
 			<div
@@ -108,7 +143,7 @@
 
 				<div class="font-display message-body text-foreground/95 min-w-0 text-[16.5px] leading-[1.72]">
 					{#if entry.response}
-						<Markdown source={entry.response} />
+						<Markdown source={entry.response} streaming={entry.streaming === true} />
 					{/if}
 					{#if entry.streaming}<span class="stream-caret" aria-hidden="true"></span>{/if}
 				</div>
@@ -120,6 +155,22 @@
 <style>
 	.avatar {
 		font-family: var(--font-sans);
+	}
+
+	/* Settled messages skip layout/paint while off-screen. This is the
+	   single biggest win when scrolling back through a long conversation
+	   while a new message is streaming: previous messages no longer
+	   contribute to the running layout/paint budget. */
+	article.is-settled {
+		content-visibility: auto;
+		contain-intrinsic-size: auto 220px;
+		contain: layout style paint;
+	}
+
+	/* The streaming article still needs full layout, but isolating it
+	   from siblings stops paint invalidation from bubbling. */
+	article.is-streaming {
+		contain: layout style;
 	}
 
 	.stream-caret {

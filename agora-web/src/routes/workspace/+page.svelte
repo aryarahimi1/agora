@@ -255,7 +255,7 @@
 					</div>
 				</div>
 			{:else}
-				<div data-chat-scroll class="min-h-0 flex-1 overflow-y-auto scroll-smooth">
+				<div data-chat-scroll class="min-h-0 flex-1 overflow-y-auto">
 					<ChatMessages entries={chat.entries} />
 				</div>
 			{/if}
