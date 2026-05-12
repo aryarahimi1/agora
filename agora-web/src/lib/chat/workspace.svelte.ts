@@ -482,10 +482,21 @@ async function runImport(userId: string): Promise<void> {
 }
 
 export async function hydrateWorkspace(): Promise<void> {
-	if (!browser || workspace.hydrated) return;
+	if (!browser) return;
+	// Wait for auth bootstrap to finish before deciding which branch to take;
+	// otherwise a page loaded with a valid session can briefly look "guest"
+	// and we'd create a phantom local chat that doesn't exist on the server.
+	if (auth.status === 'loading') return;
 	workspace.hydrated = true;
 
 	if (auth.status === 'authed' && auth.user) {
+		// Drop any guest-mode sessions we may have populated earlier in this
+		// page lifetime — their ids don't exist on the server and would
+		// otherwise leak through as 404-producing PATCH/PUT requests.
+		_loadedChats.clear();
+		workspace.sessions = [];
+		workspace.activeChatId = null;
+
 		// One-shot legacy import before fetching list
 		await runImport(auth.user.id);
 
@@ -505,7 +516,12 @@ export async function hydrateWorkspace(): Promise<void> {
 			}
 		}
 	} else {
-		// Guest fallback — read localStorage so the page isn't blank
+		// Guest fallback — read localStorage so the page isn't blank.
+		// Always wipe in-memory state first so a logout doesn't leak the
+		// previous user's chats into guest mode.
+		_loadedChats.clear();
+		workspace.sessions = [];
+		workspace.activeChatId = null;
 		try {
 			const raw = localStorage.getItem(STORAGE_KEY);
 			if (raw) {
@@ -513,7 +529,6 @@ export async function hydrateWorkspace(): Promise<void> {
 					sessions?: ChatSession[];
 					activeChatId?: string | null;
 				};
-				workspace.sessions = [];
 				for (const s of data.sessions ?? []) {
 					workspace.sessions.push(normalizeSession(s));
 				}

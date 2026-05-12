@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import {
@@ -34,8 +33,17 @@
 
 	let query = $state('');
 
-	onMount(() => {
-		hydrateWorkspace();
+	// Re-hydrate whenever auth.status settles or flips (login / logout).
+	// A one-shot onMount() would only fire for the first auth state we saw —
+	// if that was 'loading' or 'guest' we'd never reload the user's real
+	// chats after they sign in, and their chat IDs would 404 on every PATCH.
+	let lastHydratedStatus: string | null = $state(null);
+	$effect(() => {
+		const status = auth.status;
+		if (status === 'loading') return;
+		if (status === lastHydratedStatus) return;
+		lastHydratedStatus = status;
+		void hydrateWorkspace();
 	});
 
 	const filtered = $derived(
@@ -241,7 +249,7 @@
 	</aside>
 
 	<section class="flex min-h-0 min-w-0 flex-1 flex-col">
-		<div class="mx-auto flex min-h-0 w-full max-w-[680px] flex-1 flex-col px-6 sm:px-8">
+		<div class="mx-auto flex min-h-0 w-full max-w-[760px] flex-1 flex-col px-6 sm:px-8">
 			{@render children()}
 		</div>
 	</section>
