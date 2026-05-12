@@ -9,61 +9,24 @@
 
 	marked.use({ gfm: true, breaks: true });
 
-	// While a message is streaming, marked.parse + DOMPurify on the entire
-	// growing string runs once per token (50–100/sec), and {@html} replaces
-	// every child node each time. That is what makes the page lag when the
-	// user tries to scroll. Throttle the parse to at most ~10/sec during
-	// streaming, then commit the final source immediately on completion.
-	const STREAM_THROTTLE_MS = 100;
-
-	let rendered = $state('');
-	let lastRenderedAt = 0;
-	let pending: ReturnType<typeof setTimeout> | null = null;
-
-	$effect(() => {
-		const s = source;
-		if (!streaming) {
-			if (pending !== null) {
-				clearTimeout(pending);
-				pending = null;
-			}
-			rendered = s;
-			lastRenderedAt = performance.now();
-			return;
-		}
-
-		const now = performance.now();
-		const elapsed = now - lastRenderedAt;
-		if (elapsed >= STREAM_THROTTLE_MS) {
-			rendered = s;
-			lastRenderedAt = now;
-			return;
-		}
-
-		if (pending !== null) return;
-		pending = setTimeout(() => {
-			pending = null;
-			rendered = source;
-			lastRenderedAt = performance.now();
-		}, STREAM_THROTTLE_MS - elapsed);
-	});
-
-	$effect(() => {
-		return () => {
-			if (pending !== null) clearTimeout(pending);
-		};
-	});
-
+	// While the message is streaming, skip marked + DOMPurify entirely.
+	// Parsing the full growing string on every token costs 30-80ms each
+	// time for typical responses, which is what makes scrolling stutter.
+	// Plain pre-wrapped text reads fine during streaming; the moment the
+	// stream completes we parse once and swap in the formatted markdown.
 	const html = $derived.by(() => {
-		const raw = marked.parse(rendered ?? '', { async: false }) as string;
+		if (streaming) return null;
+		const raw = marked.parse(source ?? '', { async: false }) as string;
 		if (typeof window === 'undefined') return raw;
 		return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
 	});
 </script>
 
-<div class="md">
-	{@html html}
-</div>
+{#if html === null}
+	<div class="md md-stream">{source}</div>
+{:else}
+	<div class="md">{@html html}</div>
+{/if}
 
 <style>
 	.md {
@@ -72,6 +35,12 @@
 		color: var(--foreground);
 		word-wrap: break-word;
 		overflow-wrap: anywhere;
+	}
+
+	/* Streaming branch: render as preformatted text so paragraph breaks
+	   and indentation survive, but the browser does no markdown parsing. */
+	.md-stream {
+		white-space: pre-wrap;
 	}
 
 	.md :global(> *:first-child) {

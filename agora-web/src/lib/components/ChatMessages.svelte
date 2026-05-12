@@ -12,11 +12,11 @@
 
 	let rootEl: HTMLDivElement | undefined = $state();
 	let scroller: HTMLElement | null = $state(null);
+	// `pinned` = stay glued to the bottom. Goes false the *instant* the
+	// user touches the wheel / trackpad / arrow keys (not after a scroll
+	// event), so a streaming token can never yank them back mid-scroll.
 	let pinned = $state(true);
 
-	// Autoscroll only reacts to the *streaming* entry's growth, so settled
-	// messages don't keep re-triggering effects when the user is scrolling
-	// back through history.
 	const streamingTick = $derived.by(() => {
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const e = entries[i];
@@ -26,13 +26,20 @@
 	});
 
 	let scrollScheduled = false;
-	let lastScrollAt = 0;
+
+	function isAtBottom(): boolean {
+		if (!scroller) return true;
+		return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;
+	}
+
+	function unpin(): void {
+		if (pinned) pinned = false;
+	}
 
 	function onScrollerScroll(): void {
-		if (!scroller) return;
-		const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-		const next = distance < 96;
-		if (next !== pinned) pinned = next;
+		// Only the "user reached the bottom again" transition is decided
+		// from the scroll handler. Unpin is driven by direct input events.
+		if (!pinned && isAtBottom()) pinned = true;
 	}
 
 	$effect(() => {
@@ -41,34 +48,26 @@
 		if (!found) return;
 		scroller = found;
 		found.addEventListener('scroll', onScrollerScroll, { passive: true });
-		return () => found.removeEventListener('scroll', onScrollerScroll);
+		found.addEventListener('wheel', unpin, { passive: true });
+		found.addEventListener('touchstart', unpin, { passive: true });
+		found.addEventListener('keydown', unpin);
+		return () => {
+			found.removeEventListener('scroll', onScrollerScroll);
+			found.removeEventListener('wheel', unpin);
+			found.removeEventListener('touchstart', unpin);
+			found.removeEventListener('keydown', unpin);
+		};
 	});
 
 	$effect(() => {
 		void streamingTick;
 		if (!scroller || !pinned) return;
 		if (scrollScheduled) return;
-		const now = performance.now();
-		// Cap autoscroll work to ~16 FPS during streaming so scroll input wins.
-		if (now - lastScrollAt < 60) {
-			scrollScheduled = true;
-			const id = window.setTimeout(() => {
-				scrollScheduled = false;
-				if (!scroller || !pinned) return;
-				scroller.scrollTop = scroller.scrollHeight;
-				lastScrollAt = performance.now();
-			}, 60 - (now - lastScrollAt));
-			return () => {
-				window.clearTimeout(id);
-				scrollScheduled = false;
-			};
-		}
 		scrollScheduled = true;
 		const raf = requestAnimationFrame(() => {
 			scrollScheduled = false;
 			if (!scroller || !pinned) return;
 			scroller.scrollTop = scroller.scrollHeight;
-			lastScrollAt = performance.now();
 		});
 		return () => {
 			cancelAnimationFrame(raf);
@@ -104,7 +103,7 @@
 	}
 </script>
 
-<div bind:this={rootEl} class="flex flex-col gap-10 py-8">
+<div bind:this={rootEl} class="chat-list flex flex-col gap-10 py-8">
 	{#each entries as entry, i (i)}
 		{@const meta = metaLine(entry)}
 		<article
@@ -157,18 +156,22 @@
 		font-family: var(--font-sans);
 	}
 
-	/* Settled messages skip layout/paint while off-screen. This is the
-	   single biggest win when scrolling back through a long conversation
-	   while a new message is streaming: previous messages no longer
-	   contribute to the running layout/paint budget. */
+	/* Stop the browser's own scroll-anchoring from fighting with us when
+	   the streaming message grows. Without this, Chrome can silently push
+	   the viewport mid-scroll to "preserve" the focused element. */
+	.chat-list {
+		overflow-anchor: none;
+	}
+
+	/* Settled messages skip layout/paint while off-screen. The single
+	   biggest win when scrolling back through a long conversation: prior
+	   messages no longer contribute to the running layout/paint budget. */
 	article.is-settled {
 		content-visibility: auto;
 		contain-intrinsic-size: auto 220px;
 		contain: layout style paint;
 	}
 
-	/* The streaming article still needs full layout, but isolating it
-	   from siblings stops paint invalidation from bubbling. */
 	article.is-streaming {
 		contain: layout style;
 	}
