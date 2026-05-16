@@ -69,6 +69,14 @@ export interface DiscussionEntry {
 	emoji?: string;
 	avatarHue?: number;
 	streaming?: boolean;
+	/**
+	 * Entry kind. Absent on legacy rows — treat as 'agent'. The 'moderator'
+	 * kind marks routing decisions emitted by the orchestrator agent and is
+	 * rendered as a compact line, not a full message bubble.
+	 */
+	kind?: 'agent' | 'moderator';
+	/** When kind='moderator', a short directive to the next speaker. */
+	moderatorInstruction?: string;
 }
 
 export async function callAI(

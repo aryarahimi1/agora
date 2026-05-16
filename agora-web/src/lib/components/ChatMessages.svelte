@@ -103,51 +103,61 @@
 	}
 </script>
 
-<div bind:this={rootEl} class="chat-list flex flex-col gap-10 py-8">
+<div bind:this={rootEl} class="chat-list flex flex-col py-8">
 	{#each entries as entry, i (i)}
-		{@const meta = metaLine(entry)}
-		<article
-			class="group flex gap-4"
-			class:is-streaming={entry.streaming}
-			class:is-settled={!entry.streaming}
-			in:fly={{ y: 6, duration: 280, easing: quintOut }}
-		>
+		{#if entry.kind === 'moderator'}
 			<div
-				class="avatar grid size-9 shrink-0 place-items-center rounded-full text-[11px] font-semibold tracking-[0.04em] tabular-nums select-none"
-				style={avatarTint(entry.avatarHue)}
-				aria-hidden="true"
+				class="moderator-row text-muted-foreground/80 my-3 flex items-baseline gap-3 pl-12 text-[12.5px] leading-snug"
+				in:fly={{ y: 4, duration: 220, easing: quintOut }}
 			>
-				{monogram(entry.participant)}
+				<span aria-hidden="true" class="text-muted-foreground/45 select-none">◌</span>
+				<span class="font-display italic">{entry.response}</span>
 			</div>
-
-			<div class="min-w-0 flex-1">
-				<header class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-					<h3 class="font-display text-foreground text-[17px] font-semibold leading-none tracking-[-0.005em]">
-						{entry.participant}
-					</h3>
-					{#if meta}
-						<span class="text-muted-foreground/95 text-[12px] leading-none tracking-tight">
-							{meta}
-						</span>
-					{/if}
-					{#if entry.streaming}
-						<span class="text-primary/85 font-display text-[12px] leading-none italic">
-							speaking
-						</span>
-					{/if}
-					<span class="text-muted-foreground/65 ml-auto font-mono text-[10.5px] leading-none tracking-tight">
-						{shortModel(entry.model)}
-					</span>
-				</header>
-
-				<div class="font-display message-body text-foreground/95 min-w-0 text-[16.5px] leading-[1.72]">
-					{#if entry.response}
-						<Markdown source={entry.response} streaming={entry.streaming === true} />
-					{/if}
-					{#if entry.streaming}<span class="stream-caret" aria-hidden="true"></span>{/if}
+		{:else}
+			{@const meta = metaLine(entry)}
+			<article
+				class="group my-5 flex gap-4 first:mt-0"
+				class:is-streaming={entry.streaming}
+				class:is-settled={!entry.streaming}
+				in:fly={{ y: 6, duration: 280, easing: quintOut }}
+			>
+				<div
+					class="avatar grid size-9 shrink-0 place-items-center rounded-full text-[11px] font-semibold tracking-[0.04em] tabular-nums select-none"
+					style={avatarTint(entry.avatarHue)}
+					aria-hidden="true"
+				>
+					{monogram(entry.participant)}
 				</div>
-			</div>
-		</article>
+
+				<div class="min-w-0 flex-1">
+					<header class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+						<h3 class="font-display text-foreground text-[17px] font-semibold leading-none tracking-[-0.005em]">
+							{entry.participant}
+						</h3>
+						{#if meta}
+							<span class="text-muted-foreground/95 text-[12px] leading-none tracking-tight">
+								{meta}
+							</span>
+						{/if}
+						{#if entry.streaming}
+							<span class="text-primary/85 font-display text-[12px] leading-none italic">
+								speaking
+							</span>
+						{/if}
+						<span class="text-muted-foreground/65 ml-auto font-mono text-[10.5px] leading-none tracking-tight">
+							{shortModel(entry.model)}
+						</span>
+					</header>
+
+					<div class="font-display message-body text-foreground/95 min-w-0 text-[16.5px] leading-[1.72]">
+						{#if entry.response}
+							<Markdown source={entry.response} streaming={entry.streaming === true} />
+						{/if}
+						{#if entry.streaming}<span class="stream-caret" aria-hidden="true"></span>{/if}
+					</div>
+				</div>
+			</article>
+		{/if}
 	{/each}
 </div>
 

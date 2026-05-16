@@ -21,7 +21,7 @@ export interface ChatSession {
 	createdAt: number;
 	updatedAt: number;
 	mode: DiscussionMode;
-	/** Mode-specific count (rounds / passes / phases). Clamped per mode in UI. */
+	/** Total agent-turn budget. Moderator may end sooner. Clamped 2..24. */
 	generations: number;
 	agents: Agent[];
 	/** Topic / prompt draft for the composer (per chat). */
@@ -44,7 +44,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	roleplay: {
 		label: 'Roleplay',
 		emoji: '🎭',
-		hint: 'Each round runs one full rotation; every agent speaks in turn.',
+		hint: 'Distinct voices, in character. The moderator rotates so every role gets airtime.',
 		gradientClass: 'mode-roleplay',
 		flexibleAgents: true,
 		minAgents: 3,
@@ -53,7 +53,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	consensus: {
 		label: 'Consensus',
 		emoji: '🤝',
-		hint: 'Each agent stakes a position. A facilitator then runs further rounds to find common ground.',
+		hint: 'Positions stated early, synthesis pulled in late. The moderator nudges toward convergence.',
 		gradientClass: 'mode-consensus',
 		flexibleAgents: true,
 		minAgents: 3,
@@ -62,7 +62,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	brainstorm: {
 		label: 'Brainstorm',
 		emoji: '💡',
-		hint: 'Sequential creative passes. Each round adds one agent turn.',
+		hint: 'Generative and lateral. Critics are held back until the back third.',
 		gradientClass: 'mode-brainstorm',
 		flexibleAgents: true,
 		minAgents: 3,
@@ -71,7 +71,7 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	debate: {
 		label: 'Debate',
 		emoji: '⚔️',
-		hint: 'One round, one exchange. Positions cycle through support, oppose, and nuanced.',
+		hint: 'Adversarial. The moderator favors whichever side has been weakest.',
 		gradientClass: 'mode-debate',
 		flexibleAgents: true,
 		minAgents: 3,
@@ -80,11 +80,11 @@ export const MODE_META: Record<DiscussionMode, ModeMeta> = {
 	collaborative: {
 		label: 'Collaborative',
 		emoji: '🧠',
-		hint: 'Educator, then Analyst, then Synthesizer. Locked to three agents.',
+		hint: 'Each voice builds on the prior. The moderator routes for complementary turns.',
 		gradientClass: 'mode-collaborative',
-		flexibleAgents: false,
+		flexibleAgents: true,
 		minAgents: 3,
-		maxAgents: 3
+		maxAgents: 6
 	}
 };
 
@@ -241,17 +241,5 @@ export const MODE_DEFAULT_AGENTS: Record<
 		}
 	]
 };
-
-export const DEBATE_POSITIONS = [
-	'strongly supports',
-	'opposes',
-	'takes a nuanced middle position on'
-] as const;
-
-export const COLLABORATIVE_PHASES = [
-	'Initial explanation',
-	'Adding details',
-	'Synthesis & applications'
-] as const;
 
 export const AGENT_AVATAR_HUES = [285, 320, 200, 145, 40, 0] as const;

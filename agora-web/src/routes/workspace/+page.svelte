@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import ChatMessages from '$lib/components/ChatMessages.svelte';
 	import AgentsSheet from '$lib/components/AgentsSheet.svelte';
+	import SelectModelsDialog from '$lib/components/SelectModelsDialog.svelte';
 	import {
 		activeChat,
 		workspace,
@@ -15,7 +16,7 @@
 		updateAgent,
 		resetAgentsToDefaults
 	} from '$lib/chat/workspace.svelte';
-	import { MODE_META, type DiscussionMode } from '$lib/chat/types';
+	import { MODE_META, type Agent, type DiscussionMode } from '$lib/chat/types';
 	import { loadOpenRouterModels, type ModelOption } from '$lib/chat/modelsCatalog';
 	import { runSession } from '$lib/chat/runSession';
 	import { NO_KEY_SENTINEL } from '$lib/apiErrors';
@@ -29,13 +30,15 @@
 	import {
 		AlertCircleIcon,
 		ChevronsUpDownIcon,
-		MinusIcon,
-		PlusIcon,
 		SquareIcon,
 		SendHorizontalIcon,
 		Loader2Icon,
-		CheckIcon
+		CheckIcon,
+		SparklesIcon,
+		SlidersHorizontalIcon
 	} from '@lucide/svelte';
+	import { getComposerMode, setComposerMode, planAuto } from '$lib/chat/composerMode.svelte';
+	import { providerColor } from '$lib/chat/modelMeta';
 
 	let catalog = $state<ModelOption[]>([]);
 	let isRunning = $state(false);
@@ -45,9 +48,24 @@
 	let statusSubtitle = $state('');
 	let agentsOpen = $state(false);
 	let modeOpen = $state(false);
+	let modelsOpen = $state(false);
 
 	const chat = $derived(activeChat());
 	const meta = $derived(chat ? MODE_META[chat.mode] : null);
+	const composer = $derived(chat ? getComposerMode(chat.id) : 'manual');
+	const uniqueProviderColors = $derived.by(() => {
+		if (!chat) return [] as string[];
+		const seen = new Set<string>();
+		const out: string[] = [];
+		for (const a of chat.agents) {
+			const c = providerColor(a.model);
+			if (seen.has(c)) continue;
+			seen.add(c);
+			out.push(c);
+			if (out.length >= 4) break;
+		}
+		return out;
+	});
 
 	function isDiscussionMode(x: string | null): x is DiscussionMode {
 		return x !== null && Object.prototype.hasOwnProperty.call(MODE_META, x);
@@ -72,19 +90,31 @@
 		};
 	});
 
-	function maxRoundsForMode(mode: DiscussionMode): number {
-		return mode === 'collaborative' ? 3 : 24;
+	const LENGTH_OPTIONS = [
+		{ id: 'short', label: 'Short', budget: 6, hint: 'A quick exchange.' },
+		{ id: 'standard', label: 'Standard', budget: 12, hint: 'A full discussion.' },
+		{ id: 'deep', label: 'Deep', budget: 20, hint: 'Long-form, multiple passes.' }
+	] as const;
+
+	type LengthId = (typeof LENGTH_OPTIONS)[number]['id'];
+
+	function clampBudget(n: number): number {
+		const x = Number.isFinite(n) ? Math.floor(n) : 12;
+		return Math.min(24, Math.max(2, x));
 	}
 
-	function clampRounds(mode: DiscussionMode, n: number): number {
-		const x = Number.isFinite(n) ? Math.floor(n) : 3;
-		return Math.min(maxRoundsForMode(mode), Math.max(1, x));
+	function lengthFromBudget(n: number): LengthId {
+		if (n <= 8) return 'short';
+		if (n <= 14) return 'standard';
+		return 'deep';
 	}
 
-	function bumpRounds(delta: number): void {
+	function setLength(id: LengthId): void {
 		const c = activeChat();
 		if (!c || isRunning) return;
-		patchActiveChat({ generations: clampRounds(c.mode, c.generations + delta) });
+		const next = LENGTH_OPTIONS.find((o) => o.id === id);
+		if (!next || c.generations === next.budget) return;
+		void patchActiveChat({ generations: next.budget });
 	}
 
 	function pickMode(next: DiscussionMode): void {
@@ -92,9 +122,6 @@
 		const cur = activeChat();
 		if (!cur || cur.mode === next) return;
 		switchMode(next);
-		patchActiveChat({
-			generations: clampRounds(next, cur.generations)
-		});
 	}
 
 	const isErrorStatus = $derived(
@@ -110,6 +137,14 @@
 		});
 	}
 
+	function applyPanel(next: { mode: DiscussionMode; agents: Agent[]; generations: number }): void {
+		void patchActiveChat({
+			mode: next.mode,
+			agents: next.agents,
+			generations: clampBudget(next.generations)
+		});
+	}
+
 	async function onRun(): Promise<void> {
 		const c = activeChat();
 		if (!c || !c.draftTopic.trim() || isRunning) return;
@@ -117,6 +152,17 @@
 		if (auth.user?.openrouter_key_set === false) {
 			showNoKeyToast();
 			return;
+		}
+
+		let runMode: DiscussionMode = c.mode;
+		let runAgents: Agent[] = c.agents;
+		let runGenerations: number = c.generations;
+		if (getComposerMode(c.id) === 'auto') {
+			const plan = planAuto(c.draftTopic, catalog);
+			runMode = plan.mode;
+			runAgents = plan.agents;
+			runGenerations = clampBudget(plan.budget);
+			await patchActiveChat({ mode: runMode, agents: runAgents, generations: runGenerations });
 		}
 
 		const runChatId = c.id;
@@ -130,10 +176,10 @@
 
 		try {
 			await runSession({
-				mode: c.mode,
+				mode: runMode,
 				topic: c.draftTopic.trim(),
-				generations: clampRounds(c.mode, c.generations),
-				agents: c.agents,
+				generations: clampBudget(runGenerations),
+				agents: runAgents,
 				signal: controller.signal,
 				onStatus: (s) => {
 					currentStatus = s;
@@ -193,7 +239,7 @@
 					{meta.label}
 				</h1>
 				<span class="text-muted-foreground/85 ml-auto shrink-0 font-mono text-[11px] tabular-nums">
-					{chat.agents.length} {chat.agents.length === 1 ? 'agent' : 'agents'} · {chat.generations}/{maxRoundsForMode(chat.mode)} rounds
+					{chat.agents.length} {chat.agents.length === 1 ? 'agent' : 'agents'} · up to {chat.generations} turns
 				</span>
 			</div>
 			<p class="text-muted-foreground mt-2 text-[13px] leading-relaxed">
@@ -277,93 +323,145 @@
 				/>
 
 				<div class="border-border/60 flex flex-wrap items-center gap-x-1 gap-y-1.5 border-t px-2 py-2">
-					<!-- Mode -->
-					<Popover.Root bind:open={modeOpen}>
-						<Popover.Trigger>
-							{#snippet child({ props })}
-								<button
-									{...props}
-									type="button"
-									disabled={isRunning}
-									class="text-foreground/90 hover:bg-muted inline-flex h-8 items-center gap-1 rounded-md px-2 text-[12.5px] font-medium transition-colors disabled:opacity-60"
-									aria-label="Discussion mode"
-								>
-									<span
-										class={cn('size-[6px] rounded-full', meta.gradientClass)}
-										aria-hidden="true"
-									></span>
-									{meta.label}
-									<ChevronsUpDownIcon class="text-muted-foreground/70 size-3" />
-								</button>
-							{/snippet}
-						</Popover.Trigger>
-						<Popover.Content class="w-80 p-0" align="start">
-							<Command.Root>
-								<Command.Input placeholder="Search modes" />
-								<Command.List>
-									<Command.Empty>No mode found.</Command.Empty>
-									<Command.Group heading="Modes">
-										{#each Object.entries(MODE_META) as [id, m] (id)}
-											<Command.Item
-												value={`${m.label} ${id}`}
-												onSelect={() => pickMode(id as DiscussionMode)}
-											>
-												<CheckIcon
-													class={cn(
-														'size-4',
-														id === chat.mode ? 'opacity-100' : 'opacity-0'
-													)}
-													data-icon="inline-start"
-												/>
-												<div class="flex flex-col gap-0.5">
-													<span class="font-display text-[14px] font-medium">{m.label}</span>
-													<span class="text-muted-foreground text-[12px] leading-snug">{m.hint}</span>
-												</div>
-											</Command.Item>
-										{/each}
-									</Command.Group>
-								</Command.List>
-							</Command.Root>
-						</Popover.Content>
-					</Popover.Root>
-
-					<!-- Agents -->
-					<button
-						type="button"
-						disabled={isRunning}
-						onclick={() => (agentsOpen = true)}
-						class="text-foreground/90 hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium transition-colors disabled:opacity-60"
-					>
-						{chat.agents.length} {chat.agents.length === 1 ? 'agent' : 'agents'}
-					</button>
-
-					<!-- Rounds stepper -->
-					<div class="text-foreground/90 inline-flex h-8 items-center">
+					<!-- Auto / Manual segmented toggle -->
+					<div class="bg-muted/55 ring-border/55 inline-flex h-8 items-center rounded-md p-0.5 ring-1 ring-inset">
 						<button
 							type="button"
-							disabled={isRunning || chat.generations <= 1}
-							onclick={() => bumpRounds(-1)}
-							class="hover:bg-muted grid size-7 place-items-center rounded-md transition-colors disabled:opacity-40"
-							aria-label="Decrease rounds"
+							disabled={isRunning}
+							onclick={() => setComposerMode(chat.id, 'auto')}
+							class={cn(
+								'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60',
+								composer === 'auto'
+									? 'bg-popover text-foreground shadow-[0_1px_0_oklch(0.84_0.012_70_/_0.6)]'
+									: 'text-muted-foreground hover:text-foreground'
+							)}
+							aria-pressed={composer === 'auto'}
 						>
-							<MinusIcon class="size-3.5" />
+							<SparklesIcon class="size-3.5" />
+							Auto
 						</button>
-						<span class="text-muted-foreground px-1 text-[11px] font-medium tracking-[0.04em] uppercase">
-							rounds
-						</span>
-						<span class="px-0.5 text-[13px] font-semibold tabular-nums">
-							{chat.generations}
-						</span>
 						<button
 							type="button"
-							disabled={isRunning || chat.generations >= maxRoundsForMode(chat.mode)}
-							onclick={() => bumpRounds(1)}
-							class="hover:bg-muted grid size-7 place-items-center rounded-md transition-colors disabled:opacity-40"
-							aria-label="Increase rounds"
+							disabled={isRunning}
+							onclick={() => setComposerMode(chat.id, 'manual')}
+							class={cn(
+								'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60',
+								composer === 'manual'
+									? 'bg-popover text-foreground shadow-[0_1px_0_oklch(0.84_0.012_70_/_0.6)]'
+									: 'text-muted-foreground hover:text-foreground'
+							)}
+							aria-pressed={composer === 'manual'}
 						>
-							<PlusIcon class="size-3.5" />
+							<SlidersHorizontalIcon class="size-3.5" />
+							Manual
 						</button>
 					</div>
+
+					{#if composer === 'auto'}
+						<span class="text-muted-foreground/85 ml-1 inline-flex items-center gap-1.5 text-[12px] leading-none">
+							<span class="font-display italic">
+								Agora picks the mode, models, and panel.
+							</span>
+						</span>
+					{:else}
+						<!-- Mode -->
+						<Popover.Root bind:open={modeOpen}>
+							<Popover.Trigger>
+								{#snippet child({ props })}
+									<button
+										{...props}
+										type="button"
+										disabled={isRunning}
+										class="text-foreground/90 hover:bg-muted inline-flex h-8 items-center gap-1 rounded-md px-2 text-[12.5px] font-medium transition-colors disabled:opacity-60"
+										aria-label="Discussion mode"
+									>
+										<span
+											class={cn('size-[6px] rounded-full', meta.gradientClass)}
+											aria-hidden="true"
+										></span>
+										{meta.label}
+										<ChevronsUpDownIcon class="text-muted-foreground/70 size-3" />
+									</button>
+								{/snippet}
+							</Popover.Trigger>
+							<Popover.Content class="w-80 p-0" align="start">
+								<Command.Root>
+									<Command.Input placeholder="Search modes" />
+									<Command.List>
+										<Command.Empty>No mode found.</Command.Empty>
+										<Command.Group heading="Modes">
+											{#each Object.entries(MODE_META) as [id, m] (id)}
+												<Command.Item
+													value={`${m.label} ${id}`}
+													onSelect={() => pickMode(id as DiscussionMode)}
+												>
+													<CheckIcon
+														class={cn(
+															'size-4',
+															id === chat.mode ? 'opacity-100' : 'opacity-0'
+														)}
+														data-icon="inline-start"
+													/>
+													<div class="flex flex-col gap-0.5">
+														<span class="font-display text-[14px] font-medium">{m.label}</span>
+														<span class="text-muted-foreground text-[12px] leading-snug">{m.hint}</span>
+													</div>
+												</Command.Item>
+											{/each}
+										</Command.Group>
+									</Command.List>
+								</Command.Root>
+							</Popover.Content>
+						</Popover.Root>
+
+						<!-- Models pill -->
+						<button
+							type="button"
+							disabled={isRunning}
+							onclick={() => (modelsOpen = true)}
+							class="text-foreground/90 hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium transition-colors disabled:opacity-60"
+							aria-label="Choose models and panel"
+						>
+							Models
+							<span class="flex items-center -space-x-1" aria-hidden="true">
+								{#each uniqueProviderColors as c, i (i)}
+									<span
+										class="ring-popover inline-block size-[10px] rounded-full ring-2"
+										style={`background:${c}`}
+									></span>
+								{/each}
+							</span>
+							<span class="text-muted-foreground/85 font-mono tabular-nums text-[11px]">
+								{chat.agents.length}
+							</span>
+						</button>
+
+						<!-- Length budget pill -->
+						{@const activeLength = lengthFromBudget(chat.generations)}
+						<div
+							class="bg-muted/55 ring-border/55 inline-flex h-8 items-center rounded-md p-0.5 ring-1 ring-inset"
+							role="group"
+							aria-label="Discussion length"
+						>
+							{#each LENGTH_OPTIONS as opt (opt.id)}
+								<button
+									type="button"
+									disabled={isRunning}
+									onclick={() => setLength(opt.id)}
+									title={`${opt.hint} Up to ${opt.budget} turns.`}
+									class={cn(
+										'inline-flex h-7 items-center rounded-[5px] px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60',
+										activeLength === opt.id
+											? 'bg-popover text-foreground shadow-[0_1px_0_oklch(0.84_0.012_70_/_0.6)]'
+											: 'text-muted-foreground hover:text-foreground'
+									)}
+									aria-pressed={activeLength === opt.id}
+								>
+									{opt.label}
+								</button>
+							{/each}
+						</div>
+					{/if}
 
 					<span class="flex-1"></span>
 
@@ -394,9 +492,21 @@
 					</button>
 				</div>
 			</div>
-			<p class="text-muted-foreground/70 mt-2 pl-1 text-[11px]">
-				Press <kbd class="font-mono text-[10.5px]">Enter</kbd> to send, <kbd class="font-mono text-[10.5px]">Shift+Enter</kbd> for a new line.
-			</p>
+			<div class="mt-2 flex items-center gap-3 pl-1">
+				<p class="text-muted-foreground/70 text-[11px]">
+					Press <kbd class="font-mono text-[10.5px]">Enter</kbd> to send, <kbd class="font-mono text-[10.5px]">Shift+Enter</kbd> for a new line.
+				</p>
+				{#if composer === 'manual'}
+					<button
+						type="button"
+						disabled={isRunning}
+						onclick={() => (agentsOpen = true)}
+						class="text-muted-foreground/70 hover:text-foreground/85 ml-auto text-[11px] underline decoration-border decoration-[0.5px] underline-offset-[4px] transition-colors disabled:opacity-60"
+					>
+						Edit personas
+					</button>
+				{/if}
+			</div>
 		</div>
 	</div>
 
@@ -410,6 +520,16 @@
 		onRemove={removeAgent}
 		onUpdate={updateAgent}
 		onReset={resetAgentsToDefaults}
+	/>
+
+	<SelectModelsDialog
+		open={modelsOpen}
+		mode={chat.mode}
+		agents={chat.agents}
+		generations={chat.generations}
+		{catalog}
+		onApply={applyPanel}
+		onOpenChange={(v) => (modelsOpen = v)}
 	/>
 {/if}
 
